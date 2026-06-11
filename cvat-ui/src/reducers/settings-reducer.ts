@@ -64,6 +64,7 @@ const defaultState: SettingsState = {
         brightnessLevel: 100,
         contrastLevel: 100,
         saturationLevel: 100,
+        channelSwap24: false,
     },
     imageFilters: [],
     showDialog: false,
@@ -289,6 +290,15 @@ export default (state = defaultState, action: AnyAction): SettingsState => {
                 player: {
                     ...state.player,
                     saturationLevel: action.payload.level,
+                },
+            };
+        }
+        case SettingsActionTypes.SWITCH_CHANNEL_SWAP_24: {
+            return {
+                ...state,
+                player: {
+                    ...state.player,
+                    channelSwap24: action.payload.enabled,
                 },
             };
         }

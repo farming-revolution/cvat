@@ -36,7 +36,13 @@ onmessage = (e) => {
                                 if (!errored) {
                                     // do not need to read the rest of block if an error already occurred
                                     if (dimension === dimension2D) {
-                                        createImageBitmap(fileData).then((img) => {
+                                        // premultiplyAlpha:'none' keeps the 4th channel's numeric
+                                        // value intact for multispectral RGBA inputs (e.g. NIR band
+                                        // stored in alpha). Safe no-op for opaque RGB images.
+                                        createImageBitmap(fileData, {
+                                            premultiplyAlpha: 'none',
+                                            colorSpaceConversion: 'none',
+                                        }).then((img) => {
                                             postMessage({
                                                 fileName: relativePath,
                                                 index: fileIndex,

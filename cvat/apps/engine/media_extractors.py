@@ -809,7 +809,7 @@ class IChunkWriter(ABC):
     @staticmethod
     def _compress_image(
         source_image: av.VideoFrame | io.IOBase | Image.Image, quality: int
-    ) -> io.BytesIO:
+    ) -> tuple[io.BytesIO, str]:
         image = None
         if isinstance(source_image, av.VideoFrame):
             image = source_image.to_image()
@@ -850,13 +850,24 @@ class IChunkWriter(ABC):
             # fmt: on
 
         if image.mode != "RGB" and image.mode != "L":
+            # Preserve a 4th channel (e.g. multispectral data stored as RGBA PNG)
+            # by encoding to PNG instead of JPEG, which would silently drop alpha.
+            if image.mode in ("RGBA", "LA"):
+                buf = io.BytesIO()
+                # NB: optimize=True triggers an exhaustive zlib search that takes
+                # ~9s per 2K RGBA image, which makes on-demand chunk preparation
+                # (CVAT >=2.5x) time out and retry forever. compress_level=1 is
+                # ~20x faster and still lossless, so the 4th channel is preserved.
+                image.save(buf, format="PNG", compress_level=1)
+                buf.seek(0)
+                return buf, "png"
             image = image.convert("RGB")
 
         buf = io.BytesIO()
         image.save(buf, format="JPEG", quality=quality, optimize=True)
         buf.seek(0)
 
-        return buf
+        return buf, "jpeg"
 
     @abstractmethod
     def save_as_chunk(self, images, chunk_path):
@@ -944,7 +955,7 @@ class ZipCompressedChunkWriter(ZipChunkWriter):
                 if self._dimension == DimensionType.DIM_2D:
                     if compress_frames:
                         try:
-                            image_buf = self._compress_image(image, self._image_quality)
+                            image_buf, extension = self._compress_image(image, self._image_quality)
                         except Exception as ex:
                             if path is None:
                                 raise
@@ -955,7 +966,7 @@ class ZipCompressedChunkWriter(ZipChunkWriter):
                     else:
                         assert isinstance(image, io.IOBase)
                         image_buf = io.BytesIO(image.read())
-                    extension = self.IMAGE_EXT
+                        extension = self.IMAGE_EXT
                 else:
                     if isinstance(image, io.BytesIO):
                         image_buf, extension = self._write_pcd_file(image)

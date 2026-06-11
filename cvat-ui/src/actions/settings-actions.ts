@@ -41,6 +41,7 @@ export enum SettingsActionTypes {
     CHANGE_BRIGHTNESS_LEVEL = 'CHANGE_BRIGHTNESS_LEVEL',
     CHANGE_CONTRAST_LEVEL = 'CHANGE_CONTRAST_LEVEL',
     CHANGE_SATURATION_LEVEL = 'CHANGE_SATURATION_LEVEL',
+    SWITCH_CHANNEL_SWAP_24 = 'SWITCH_CHANNEL_SWAP_24',
     SWITCH_AUTO_SAVE = 'SWITCH_AUTO_SAVE',
     CHANGE_AUTO_SAVE_INTERVAL = 'CHANGE_AUTO_SAVE_INTERVAL',
     CHANGE_FOCUSED_OBJECT_PADDING = 'CHANGE_FOCUSED_OBJECT_PADDING',
@@ -276,6 +277,15 @@ export function changeSaturationLevel(level: number): AnyAction {
         type: SettingsActionTypes.CHANGE_SATURATION_LEVEL,
         payload: {
             level,
+        },
+    };
+}
+
+export function switchChannelSwap24(enabled: boolean): AnyAction {
+    return {
+        type: SettingsActionTypes.SWITCH_CHANNEL_SWAP_24,
+        payload: {
+            enabled,
         },
     };
 }

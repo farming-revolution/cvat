@@ -990,6 +990,7 @@ export interface PlayerSettingsState {
     brightnessLevel: number;
     contrastLevel: number;
     saturationLevel: number;
+    channelSwap24: boolean;
 }
 
 export interface WorkspaceSettingsState {

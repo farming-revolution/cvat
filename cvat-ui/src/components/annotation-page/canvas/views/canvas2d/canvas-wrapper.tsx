@@ -57,6 +57,7 @@ import {
     changeBrightnessLevel,
     changeContrastLevel,
     changeSaturationLevel,
+    switchChannelSwap24,
     switchAutomaticBordering,
     switchSnapToPoint,
 } from 'actions/settings-actions';
@@ -69,6 +70,7 @@ import { registerComponentShortcuts } from 'actions/shortcuts-actions';
 import { subKeyMap } from 'utils/component-subkeymap';
 import ImageSetupsContent from './image-setups-content';
 import CanvasTipsComponent from './canvas-hints';
+import ChannelSwapDefs, { CHANNEL_SWAP_24_URL, CHANNEL_OPAQUE_URL } from './channel-swap-filter';
 
 const cvat = getCore();
 const MAX_DISTANCE_TO_OPEN_SHAPE = 50;
@@ -100,6 +102,7 @@ interface StateToProps {
     brightnessLevel: number;
     contrastLevel: number;
     saturationLevel: number;
+    channelSwap24: boolean;
     resetZoom: boolean;
     smoothImage: boolean;
     focusedObjectPadding: number;
@@ -146,6 +149,7 @@ interface DispatchToProps {
     onChangeBrightnessLevel(level: number): void;
     onChangeContrastLevel(level: number): void;
     onChangeSaturationLevel(level: number): void;
+    onSwitchChannelSwap24(enabled: boolean): void;
     onChangeGridOpacity(opacity: number): void;
     onChangeGridColor(color: GridColor): void;
     onSwitchGrid(enabled: boolean): void;
@@ -189,6 +193,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
                 brightnessLevel,
                 contrastLevel,
                 saturationLevel,
+                channelSwap24,
                 resetZoom,
                 smoothImage,
             },
@@ -242,6 +247,7 @@ function mapStateToProps(state: CombinedState): StateToProps {
         brightnessLevel: brightnessLevel / 100,
         contrastLevel: contrastLevel / 100,
         saturationLevel: saturationLevel / 100,
+        channelSwap24,
         resetZoom,
         smoothImage,
         focusedObjectPadding,
@@ -287,6 +293,12 @@ const componentShortcuts = {
         description: 'Toggle automatic snapping to nearby points',
         sequences: [],
         scope: ShortcutScope.STANDARD_WORKSPACE,
+    },
+    SWITCH_CHANNEL_SWAP_24: {
+        name: 'Toggle channel swap (G ↔ ch4)',
+        description: 'Swap the displayed Green with the source 4th channel (for RGBA multispectral images)',
+        sequences: ['shift+n'],
+        scope: ShortcutScope.ANNOTATION_PAGE,
     },
     NEXT_OBJECT: {
         name: 'Next object',
@@ -378,6 +390,9 @@ function mapDispatchToProps(dispatch: any): DispatchToProps {
         },
         onSwitchSnapToPoint(enabled: boolean): void {
             dispatch(switchSnapToPoint(enabled));
+        },
+        onSwitchChannelSwap24(enabled: boolean): void {
+            dispatch(switchChannelSwap24(enabled));
         },
         onFetchAnnotation(): void {
             dispatch(fetchAnnotationsAsync());
@@ -479,6 +494,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             brightnessLevel,
             contrastLevel,
             saturationLevel,
+            channelSwap24,
             showObjectsTextAlways,
             textFontSize,
             controlPointsSize,
@@ -588,11 +604,12 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         if (
             brightnessLevel !== prevProps.brightnessLevel ||
             contrastLevel !== prevProps.contrastLevel ||
-            saturationLevel !== prevProps.saturationLevel
+            saturationLevel !== prevProps.saturationLevel ||
+            channelSwap24 !== prevProps.channelSwap24
         ) {
             canvasInstance.configure({
                 CSSImageFilter:
-                    `brightness(${brightnessLevel}) contrast(${contrastLevel}) saturate(${saturationLevel})`,
+                    `${channelSwap24 ? CHANNEL_SWAP_24_URL : CHANNEL_OPAQUE_URL} brightness(${brightnessLevel}) contrast(${contrastLevel}) saturate(${saturationLevel})`,
             });
         }
 
@@ -1089,7 +1106,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
 
         canvasInstance.configure({
             CSSImageFilter:
-                `brightness(${brightnessLevel}) contrast(${contrastLevel}) saturate(${saturationLevel})`,
+                `${this.props.channelSwap24 ? CHANNEL_SWAP_24_URL : CHANNEL_OPAQUE_URL} brightness(${brightnessLevel}) contrast(${contrastLevel}) saturate(${saturationLevel})`,
         });
 
         canvasInstance.fitCanvas();
@@ -1143,6 +1160,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             keyMap,
             automaticBordering,
             snapToPoint,
+            channelSwap24,
             showTagsOnFrame,
             canvasIsReady,
             annotations,
@@ -1150,6 +1168,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
             focusedObjectPadding,
             onSwitchAutomaticBordering,
             onSwitchSnapToPoint,
+            onSwitchChannelSwap24,
             onSwitchZLayer,
             onAddZLayer,
             onActivateObject,
@@ -1195,6 +1214,10 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
                 preventDefault(event);
                 onSwitchSnapToPoint(!snapToPoint);
             },
+            SWITCH_CHANNEL_SWAP_24: (event: KeyboardEvent | undefined) => {
+                preventDefault(event);
+                onSwitchChannelSwap24(!channelSwap24);
+            },
             NEXT_OBJECT: (event: KeyboardEvent | undefined) => {
                 preventDefault(event);
                 navigateObject(1);
@@ -1208,6 +1231,7 @@ class CanvasWrapperComponent extends React.PureComponent<Props> {
         return (
             <>
                 <GlobalHotKeys keyMap={subKeyMap(componentShortcuts, keyMap)} handlers={handlers} />
+                <ChannelSwapDefs />
                 <CanvasTipsComponent ref={this.canvasTipsRef} />
                 {
                     !canvasIsReady && (

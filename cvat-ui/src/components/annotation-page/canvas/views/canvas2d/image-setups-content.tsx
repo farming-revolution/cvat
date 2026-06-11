@@ -11,6 +11,7 @@ import Text from 'antd/lib/typography/Text';
 import InputNumber from 'antd/lib/input-number';
 import Select from 'antd/lib/select';
 import Slider from 'antd/lib/slider';
+import Switch from 'antd/lib/switch';
 import Button from 'antd/lib/button';
 
 import {
@@ -20,6 +21,7 @@ import {
     changeBrightnessLevel,
     changeContrastLevel,
     changeSaturationLevel,
+    switchChannelSwap24,
     changeGridSize,
     resetImageFilters,
 } from 'actions/settings-actions';
@@ -36,6 +38,7 @@ export default function ImageSetupsContent(): JSX.Element {
         brightnessLevel,
         contrastLevel,
         saturationLevel,
+        channelSwap24,
         gridOpacity,
         gridColor,
         gridSize,
@@ -167,6 +170,20 @@ export default function ImageSetupsContent(): JSX.Element {
                                 value={saturationLevel}
                                 onChange={(value: number | [number, number]): void => {
                                     dispatch(changeSaturationLevel(value as number));
+                                }}
+                            />
+                        </Col>
+                    </Row>
+                    <Row className='cvat-image-setups-channel-swap' align='middle'>
+                        <Col span={18}>
+                            <Text className='cvat-text-color'>Swap G ↔ 4th channel (Shift+N)</Text>
+                        </Col>
+                        <Col>
+                            <Switch
+                                className='cvat-image-setups-channel-swap-switch'
+                                checked={channelSwap24}
+                                onChange={(checked: boolean): void => {
+                                    dispatch(switchChannelSwap24(checked));
                                 }}
                             />
                         </Col>
