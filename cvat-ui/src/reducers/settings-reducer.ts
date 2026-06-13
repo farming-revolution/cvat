@@ -65,6 +65,10 @@ const defaultState: SettingsState = {
         contrastLevel: 100,
         saturationLevel: 100,
         channelSwap24: false,
+        colorSettingsByView: {
+            rgb: { brightnessLevel: 100, contrastLevel: 100, saturationLevel: 100 },
+            falseColor: { brightnessLevel: 100, contrastLevel: 100, saturationLevel: 100 },
+        },
     },
     imageFilters: [],
     showDialog: false,
@@ -294,11 +298,29 @@ export default (state = defaultState, action: AnyAction): SettingsState => {
             };
         }
         case SettingsActionTypes.SWITCH_CHANNEL_SWAP_24: {
+            const outgoingKey = state.player.channelSwap24 ? 'falseColor' : 'rgb';
+            const incomingKey = action.payload.enabled ? 'falseColor' : 'rgb';
+            // Persist the live (active-view) color values into the outgoing view's
+            // slot, then load the incoming view's stored profile. This keeps each
+            // view's brightness/contrast/saturation independent.
+            const colorSettingsByView = {
+                ...state.player.colorSettingsByView,
+                [outgoingKey]: {
+                    brightnessLevel: state.player.brightnessLevel,
+                    contrastLevel: state.player.contrastLevel,
+                    saturationLevel: state.player.saturationLevel,
+                },
+            };
+            const incoming = colorSettingsByView[incomingKey];
             return {
                 ...state,
                 player: {
                     ...state.player,
                     channelSwap24: action.payload.enabled,
+                    brightnessLevel: incoming.brightnessLevel,
+                    contrastLevel: incoming.contrastLevel,
+                    saturationLevel: incoming.saturationLevel,
+                    colorSettingsByView,
                 },
             };
         }

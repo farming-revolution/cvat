@@ -975,6 +975,12 @@ export enum ColorBy {
     LABEL = 'Label',
 }
 
+export interface PlayerColorSettings {
+    brightnessLevel: number;
+    contrastLevel: number;
+    saturationLevel: number;
+}
+
 export interface PlayerSettingsState {
     canvasBackgroundColor: string;
     frameStep: number;
@@ -991,6 +997,14 @@ export interface PlayerSettingsState {
     contrastLevel: number;
     saturationLevel: number;
     channelSwap24: boolean;
+    // Per-view color profiles. The active view's values are mirrored in the
+    // brightnessLevel/contrastLevel/saturationLevel fields above; this holds the
+    // stored profile for each "Swap G <-> 4th channel" view so they persist
+    // independently (rgb = swap off, falseColor = swap on).
+    colorSettingsByView: {
+        rgb: PlayerColorSettings;
+        falseColor: PlayerColorSettings;
+    };
 }
 
 export interface WorkspaceSettingsState {
