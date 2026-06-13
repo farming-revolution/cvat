@@ -14,6 +14,19 @@ import { ArgumentError } from './exceptions';
 import { FieldUpdateTrigger } from './common';
 import config from './config';
 
+// How many frames to keep decoded around the current frame. The decoded-frame
+// cache is sized to hold roughly this many frames before and after the current
+// one (rounded up to whole chunks), and the prefetcher fills the window in both
+// directions in the background so scrubbing does not stall at chunk boundaries.
+const CACHED_FRAMES_AHEAD = 50;
+const CACHED_FRAMES_BEHIND = 50;
+// A couple of extra chunks so LRU eviction (which is ordered by decode time, not
+// by spatial distance) does not drop chunks that are still inside the window.
+const CACHE_HEADROOM_CHUNKS = 2;
+// Hard ceiling on decoded-frame memory. Decoded frames are RGBA bitmaps
+// (width * height * 4 bytes), so this bounds the cache for large images.
+const DECODED_CACHE_MEMORY_LIMIT = 3 * 1024 * 1024 * 1024;
+
 // frame storage by job id
 const frameDataCache: Record<string, {
     metaFetchedTimestamp: number;
@@ -27,6 +40,8 @@ const frameDataCache: Record<string, {
     provider: FrameDecoder;
     prefetchAnalyzer: PrefetchAnalyzer;
     decodedBlocksCacheSize: number;
+    prefetchChunksAhead: number;
+    prefetchChunksBehind: number;
     activeChunkRequest: Promise<void> | null;
     activeContextRequest: Promise<Record<number, ImageBitmap>> | null;
     segmentFrameNumbers: number[];
@@ -458,7 +473,8 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
     async value(this: FrameData, onServerRequest) {
         const {
             provider, prefetchAnalyzer, chunkSize, jobStartFrame,
-            decodeForward, forwardStep, decodedBlocksCacheSize, segmentFrameNumbers,
+            decodeForward, decodedBlocksCacheSize, segmentFrameNumbers,
+            prefetchChunksAhead, prefetchChunksBehind,
         } = frameDataCache[this.jobID];
         const meta = await frameDataCache[this.jobID].getMeta();
 
@@ -472,54 +488,46 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
             const chunkIndex = meta.getFrameChunkIndex(requestedDataFrameNumber);
             const frame = provider.frame(this.number);
 
-            function findTheNextNotDecodedChunk(currentFrameIndex: number): number | null {
+            // Find the nearest not-yet-decoded chunk inside the prefetch window
+            // [chunkIndex - prefetchChunksBehind, chunkIndex + prefetchChunksAhead].
+            // Closest chunks are returned first, with the forward direction preferred
+            // at an equal distance, so the buffer fills outward in both directions.
+            function findNextChunkToPrefetch(): number | null {
                 const { chunkCount } = meta;
-                let nextFrameIndex = currentFrameIndex + forwardStep;
-                let nextChunkIndex = Math.floor(nextFrameIndex / chunkSize);
-                while (nextChunkIndex === chunkIndex) {
-                    nextFrameIndex += forwardStep;
-                    nextChunkIndex = Math.floor(nextFrameIndex / chunkSize);
+                const maxDistance = Math.max(prefetchChunksAhead, prefetchChunksBehind);
+                for (let distance = 1; distance <= maxDistance; distance++) {
+                    if (distance <= prefetchChunksAhead) {
+                        const forwardChunk = chunkIndex + distance;
+                        if (forwardChunk < chunkCount && !provider.isChunkCached(forwardChunk)) {
+                            return forwardChunk;
+                        }
+                    }
+                    if (distance <= prefetchChunksBehind) {
+                        const backwardChunk = chunkIndex - distance;
+                        if (backwardChunk >= 0 && !provider.isChunkCached(backwardChunk)) {
+                            return backwardChunk;
+                        }
+                    }
                 }
-
-                if (nextChunkIndex < 0 || chunkCount <= nextChunkIndex) {
-                    return null;
-                }
-
-                if (provider.isChunkCached(nextChunkIndex)) {
-                    return findTheNextNotDecodedChunk(nextFrameIndex);
-                }
-
-                return nextChunkIndex;
+                return null;
             }
 
             if (frame) {
-                if (
-                    prefetchAnalyzer.shouldPrefetchNext(
-                        this.number,
-                        decodeForward,
-                        (chunk) => provider.isChunkCached(chunk),
-                    ) && decodedBlocksCacheSize > 1 && !frameDataCache[this.jobID].activeChunkRequest
-                ) {
-                    const predecodeChunksMax = Math.floor(decodedBlocksCacheSize / 2);
-                    const currentFrameIndex = meta.getFrameIndex(requestedDataFrameNumber);
-
-                    // Eagerly prefetch several chunks ahead in the background instead of
-                    // only the immediate next one. Each prefetched chunk re-arms the next
-                    // one (chained loading) until the look-ahead window (predecodeChunksMax)
-                    // is filled, so annotation does not stall at every chunk boundary.
-                    // This is especially important with small chunk sizes (e.g. 4-channel
-                    // PNG datasets that use a tiny chunk_size to keep per-chunk size low).
-                    const prefetchAhead = (): void => {
+                if (decodedBlocksCacheSize > 1 && !frameDataCache[this.jobID].activeChunkRequest) {
+                    // Eagerly fill the prefetch window in the background, in both
+                    // directions. Each loaded chunk re-arms the next one (chained
+                    // loading) until the whole window is cached, so annotation does
+                    // not stall at every chunk boundary even with small chunk sizes.
+                    const prefetchWindow = (): void => {
                         if (!(this.jobID in frameDataCache) ||
                             frameDataCache[this.jobID].activeChunkRequest
                         ) {
                             return;
                         }
 
-                        const nextChunkIndex = findTheNextNotDecodedChunk(currentFrameIndex);
-                        if (nextChunkIndex === null ||
-                            nextChunkIndex > chunkIndex + predecodeChunksMax
-                        ) {
+                        const nextChunkIndex = findNextChunkToPrefetch();
+                        if (nextChunkIndex === null) {
+                            // window is fully cached
                             return;
                         }
 
@@ -527,8 +535,8 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                             const releasePromise = (): void => {
                                 resolveForward();
                                 frameDataCache[this.jobID].activeChunkRequest = null;
-                                // continue filling the look-ahead buffer with the next chunk
-                                prefetchAhead();
+                                // continue filling the window with the next nearest chunk
+                                prefetchWindow();
                             };
 
                             frameDataCache[this.jobID].getChunk(
@@ -559,7 +567,7 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                         });
                     };
 
-                    prefetchAhead();
+                    prefetchWindow();
                 }
 
                 resolve({
@@ -924,9 +932,33 @@ export async function getFrame(
             meta.frames.length,
         );
 
-        // limit of decoded frames cache by 2GB
-        const decodedBlocksCacheSize = Math.min(
-            Math.floor((2048 * 1024 * 1024) / ((mean + stdDev) * 4 * chunkSize)) || 1, 10,
+        // Size the decoded-frame cache to hold a window of CACHED_FRAMES_BEHIND frames
+        // before and CACHED_FRAMES_AHEAD frames after the current frame (rounded up to
+        // whole chunks), plus the current chunk and a little headroom. The window is
+        // clamped so the decoded bitmaps stay within DECODED_CACHE_MEMORY_LIMIT.
+        const frameBytes = (mean + stdDev) * 4;
+        const memoryLimitedChunks = Math.max(
+            1, Math.floor(DECODED_CACHE_MEMORY_LIMIT / (frameBytes * chunkSize)) || 1,
+        );
+
+        let prefetchChunksAhead = Math.ceil(CACHED_FRAMES_AHEAD / chunkSize);
+        let prefetchChunksBehind = Math.ceil(CACHED_FRAMES_BEHIND / chunkSize);
+        // current chunk + headroom must also fit in memory; scale the window down if needed
+        const reservedChunks = 1 + CACHE_HEADROOM_CHUNKS;
+        if (prefetchChunksAhead + prefetchChunksBehind + reservedChunks > memoryLimitedChunks) {
+            const available = Math.max(0, memoryLimitedChunks - reservedChunks);
+            const requested = prefetchChunksAhead + prefetchChunksBehind;
+            const ratio = requested > 0 ? available / requested : 0;
+            prefetchChunksAhead = Math.max(1, Math.floor(prefetchChunksAhead * ratio));
+            prefetchChunksBehind = Math.max(0, Math.floor(prefetchChunksBehind * ratio));
+        }
+
+        const decodedBlocksCacheSize = Math.max(
+            1,
+            Math.min(
+                prefetchChunksAhead + prefetchChunksBehind + reservedChunks,
+                memoryLimitedChunks,
+            ),
         );
 
         const dataFrameNumberGetter = (frameNumber: number): number => (
@@ -951,6 +983,8 @@ export async function getFrame(
             ),
             prefetchAnalyzer: new PrefetchAnalyzer(meta, dataFrameNumberGetter),
             decodedBlocksCacheSize,
+            prefetchChunksAhead,
+            prefetchChunksBehind,
             activeChunkRequest: null,
             activeContextRequest: null,
             latestFrameDecodeRequest: null,
