@@ -500,17 +500,35 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                         (chunk) => provider.isChunkCached(chunk),
                     ) && decodedBlocksCacheSize > 1 && !frameDataCache[this.jobID].activeChunkRequest
                 ) {
-                    const nextChunkIndex = findTheNextNotDecodedChunk(
-                        meta.getFrameIndex(requestedDataFrameNumber),
-                    );
                     const predecodeChunksMax = Math.floor(decodedBlocksCacheSize / 2);
-                    if (nextChunkIndex !== null &&
-                        nextChunkIndex <= chunkIndex + predecodeChunksMax
-                    ) {
+                    const currentFrameIndex = meta.getFrameIndex(requestedDataFrameNumber);
+
+                    // Eagerly prefetch several chunks ahead in the background instead of
+                    // only the immediate next one. Each prefetched chunk re-arms the next
+                    // one (chained loading) until the look-ahead window (predecodeChunksMax)
+                    // is filled, so annotation does not stall at every chunk boundary.
+                    // This is especially important with small chunk sizes (e.g. 4-channel
+                    // PNG datasets that use a tiny chunk_size to keep per-chunk size low).
+                    const prefetchAhead = (): void => {
+                        if (!(this.jobID in frameDataCache) ||
+                            frameDataCache[this.jobID].activeChunkRequest
+                        ) {
+                            return;
+                        }
+
+                        const nextChunkIndex = findTheNextNotDecodedChunk(currentFrameIndex);
+                        if (nextChunkIndex === null ||
+                            nextChunkIndex > chunkIndex + predecodeChunksMax
+                        ) {
+                            return;
+                        }
+
                         frameDataCache[this.jobID].activeChunkRequest = new Promise((resolveForward) => {
                             const releasePromise = (): void => {
                                 resolveForward();
                                 frameDataCache[this.jobID].activeChunkRequest = null;
+                                // continue filling the look-ahead buffer with the next chunk
+                                prefetchAhead();
                             };
 
                             frameDataCache[this.jobID].getChunk(
@@ -539,7 +557,9 @@ Object.defineProperty(FrameData.prototype.data, 'implementation', {
                                 releasePromise();
                             });
                         });
-                    }
+                    };
+
+                    prefetchAhead();
                 }
 
                 resolve({
