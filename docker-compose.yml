@@ -12,7 +12,10 @@ x-backend-env: &backend-env
   CVAT_REDIS_ONDISK_HOST: cvat_redis_ondisk
   CVAT_REDIS_ONDISK_PORT: 6666
   CVAT_LOG_IMPORT_ERRORS: 'true'
-  CVAT_ALLOW_STATIC_CACHE: '${CVAT_ALLOW_STATIC_CACHE:-no}'
+  # farming: default static (file_system) chunk cache on. Tasks created with
+  # use_cache=false store pre-generated chunks on disk and can read source
+  # images in-place from the share (no copy_data duplication).
+  CVAT_ALLOW_STATIC_CACHE: '${CVAT_ALLOW_STATIC_CACHE:-true}'
   CVAT_DEFAULT_BACKING_CS_ID:
   DJANGO_LOG_SERVER_HOST: vector
   DJANGO_LOG_SERVER_PORT: 8282
