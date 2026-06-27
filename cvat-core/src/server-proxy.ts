@@ -10,6 +10,7 @@ import { ChunkQuality } from 'cvat-data';
 
 import './axios-config';
 import { axiosTusHttpStack } from './axios-tus';
+import { getLocalChunk, putLocalChunk } from './frames-local-cache';
 import {
     SerializedLabel, SerializedAnnotationFormats, ProjectsFilter,
     SerializedProject, SerializedTask, TasksFilter, SerializedUser, SerializedOrganization,
@@ -1600,6 +1601,13 @@ async function getImageContext(jid: number, frame: number): Promise<ArrayBuffer>
 async function getData(jid: number, chunk: number, quality: ChunkQuality, retry = 0): Promise<ArrayBuffer> {
     const { backendAPI } = config;
 
+    // Serve from the persistent on-disk (Cache Storage) cache when available so that
+    // preloaded jobs do not re-download over a slow connection.
+    const localChunk = await getLocalChunk(jid, chunk, quality);
+    if (localChunk) {
+        return localChunk;
+    }
+
     try {
         const response = await (workerAxios as any).get(`${backendAPI}/jobs/${jid}/data`, {
             params: {
@@ -1632,6 +1640,9 @@ async function getData(jid: number, chunk: number, quality: ChunkQuality, retry 
                 `Body size: ${response.data.byteLength}`,
             );
         }
+
+        // Persist the freshly downloaded chunk on the user's disk for fast subsequent access.
+        await putLocalChunk(jid, chunk, quality, response.data);
 
         return response.data;
     } catch (errorData) {

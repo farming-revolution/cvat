@@ -52,6 +52,11 @@ import { Request, RequestOperation } from 'cvat-core/src/request';
 import { ImageProcessing, BaseImageFilter, SerializedImageFilter } from 'cvat-core/src/opencv/image-processing';
 import AboutData from 'cvat-core/src/about';
 import { MinimalShape, TrackerResults, InteractorResults } from 'cvat-core/src/lambda-manager';
+import {
+    clearLocalChunkCache,
+    estimateLocalChunkStorage,
+    isLocalChunkCacheSupported,
+} from 'cvat-core/src/frames-local-cache';
 
 const cvat: CVATCore = _cvat;
 
@@ -126,6 +131,9 @@ export {
     MembershipRole,
     AboutData,
     BaseImageFilter,
+    clearLocalChunkCache,
+    estimateLocalChunkStorage,
+    isLocalChunkCacheSupported,
 };
 
 export type {

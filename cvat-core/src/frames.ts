@@ -12,6 +12,7 @@ import serverProxy from './server-proxy';
 import { SerializedChapterMetaData, SerializedFramesMetaData } from './server-response-types';
 import { ArgumentError } from './exceptions';
 import { FieldUpdateTrigger } from './common';
+import { requestPersistentStorage } from './frames-local-cache';
 import config from './config';
 
 // How many frames to keep decoded around the current frame. The decoded-frame
@@ -1121,8 +1122,9 @@ export async function cacheJobChunks(
 ): Promise<void> {
     // Pre-fetch every compressed chunk of a job so the server-side (kvrocks) cache
     // is warmed. The chunks are only requested as raw buffers (not decoded), so this
-    // does not consume the bounded in-memory decoded-frame cache. Warmed chunks live
-    // until the regular media-cache TTL expires (no extra persistence is added here).
+    // does not consume the bounded in-memory decoded-frame cache. Each fetched chunk is
+    // also persisted on the user's disk (Cache Storage) so subsequent reads are local.
+    await requestPersistentStorage();
     const meta = await getFramesMeta('job', jobID);
     const total = meta.chunkCount;
 

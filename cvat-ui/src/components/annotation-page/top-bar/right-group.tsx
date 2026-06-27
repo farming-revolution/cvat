@@ -5,7 +5,7 @@
 
 import React, { useEffect, useCallback, useState, useRef } from 'react';
 import { Col } from 'antd/lib/grid';
-import Icon, { InfoCircleOutlined, CloudDownloadOutlined } from '@ant-design/icons';
+import Icon, { InfoCircleOutlined, CloudDownloadOutlined, DeleteOutlined } from '@ant-design/icons';
 import Select from 'antd/lib/select';
 import Button from 'antd/lib/button';
 import Modal from 'antd/lib/modal';
@@ -16,6 +16,7 @@ import { FilterIcon, FullscreenIcon, GuideIcon } from 'icons';
 import config from 'config';
 import {
     DimensionType, Job, JobStage, JobState,
+    clearLocalChunkCache, isLocalChunkCacheSupported,
 } from 'cvat-core-wrapper';
 import { Workspace } from 'reducers';
 
@@ -61,7 +62,7 @@ function RightGroup(props: Props): JSX.Element {
             if (!controller.signal.aborted) {
                 notification.success({
                     message: 'Job preloaded',
-                    description: 'All frames of the job are cached for fast access.',
+                    description: 'All frames of the job are cached on this computer for fast access.',
                 });
             }
         }).catch((error: unknown) => {
@@ -77,6 +78,22 @@ function RightGroup(props: Props): JSX.Element {
 
     const cancelPreload = useCallback(() => {
         preloadAbortRef.current?.abort();
+    }, []);
+
+    const clearLocalCache = useCallback(() => {
+        Modal.confirm({
+            title: 'Clear locally cached frames?',
+            content: 'This removes job images preloaded on this computer. ' +
+                'They will be downloaded again from the server when next needed.',
+            okText: 'Clear',
+            onOk: async () => {
+                await clearLocalChunkCache();
+                notification.success({
+                    message: 'Local cache cleared',
+                    description: 'Preloaded frames were removed from this computer.',
+                });
+            },
+        });
     }, []);
 
     const preloadPercent = preload.total > 0 ?
@@ -198,6 +215,17 @@ function RightGroup(props: Props): JSX.Element {
                 <CloudDownloadOutlined />
                 Preload
             </Button>
+            { isLocalChunkCacheSupported() && (
+                <Button
+                    type='link'
+                    className='cvat-annotation-header-clear-cache-button cvat-annotation-header-button'
+                    onClick={clearLocalCache}
+                    disabled={preload.active}
+                >
+                    <DeleteOutlined />
+                    Clear cache
+                </Button>
+            )}
             <Modal
                 open={preload.active}
                 title='Preloading job'
