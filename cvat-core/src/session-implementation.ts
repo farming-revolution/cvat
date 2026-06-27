@@ -18,6 +18,7 @@ import {
     deleteFrame,
     restoreFrame,
     getCachedChunks,
+    cacheJobChunks,
     getJobFrameNumbers,
     getFramesMeta,
     clear as clearFrames,
@@ -258,6 +259,21 @@ export function implementJob(Job: typeof JobClass): typeof JobClass {
             this: JobClass,
         ): ReturnType<typeof JobClass.prototype.frames.cachedChunks> {
             return Promise.resolve(getCachedChunks(this.id));
+        },
+    });
+
+    Object.defineProperty(Job.prototype.frames.cacheChunks, 'implementation', {
+        value: function cacheChunksImplementation(
+            this: JobClass,
+            onProgress: Parameters<typeof JobClass.prototype.frames.cacheChunks>[0],
+            signal: Parameters<typeof JobClass.prototype.frames.cacheChunks>[1],
+        ): ReturnType<typeof JobClass.prototype.frames.cacheChunks> {
+            return cacheJobChunks(
+                this.id,
+                (chunkIndex, quality) => this.frames.chunk(chunkIndex, quality),
+                onProgress,
+                signal,
+            );
         },
     });
 

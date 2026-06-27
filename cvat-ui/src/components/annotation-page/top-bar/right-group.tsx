@@ -3,12 +3,13 @@
 //
 // SPDX-License-Identifier: MIT
 
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useState, useRef } from 'react';
 import { Col } from 'antd/lib/grid';
-import Icon, { InfoCircleOutlined } from '@ant-design/icons';
+import Icon, { InfoCircleOutlined, CloudDownloadOutlined } from '@ant-design/icons';
 import Select from 'antd/lib/select';
 import Button from 'antd/lib/button';
 import Modal from 'antd/lib/modal';
+import Progress from 'antd/lib/progress';
 import notification from 'antd/lib/notification';
 
 import { FilterIcon, FullscreenIcon, GuideIcon } from 'icons';
@@ -43,6 +44,43 @@ function RightGroup(props: Props): JSX.Element {
     } = props;
 
     const filters = annotationFilters.length;
+
+    const [preload, setPreload] = useState<{
+        active: boolean; cached: number; total: number;
+    }>({ active: false, cached: 0, total: 0 });
+    const preloadAbortRef = useRef<AbortController | null>(null);
+
+    const startPreload = useCallback(() => {
+        const controller = new AbortController();
+        preloadAbortRef.current = controller;
+        setPreload({ active: true, cached: 0, total: 0 });
+
+        jobInstance.frames.cacheChunks((cached: number, total: number) => {
+            setPreload({ active: true, cached, total });
+        }, controller.signal).then(() => {
+            if (!controller.signal.aborted) {
+                notification.success({
+                    message: 'Job preloaded',
+                    description: 'All frames of the job are cached for fast access.',
+                });
+            }
+        }).catch((error: unknown) => {
+            notification.error({
+                message: 'Could not preload the job',
+                description: error instanceof Error ? error.message : 'Unknown error',
+            });
+        }).finally(() => {
+            preloadAbortRef.current = null;
+            setPreload((prev) => ({ ...prev, active: false }));
+        });
+    }, [jobInstance]);
+
+    const cancelPreload = useCallback(() => {
+        preloadAbortRef.current?.abort();
+    }, []);
+
+    const preloadPercent = preload.total > 0 ?
+        Math.floor((preload.cached / preload.total) * 100) : 0;
 
     const openGuide = useCallback(() => {
         const PADDING = Math.min(window.screen.availHeight, window.screen.availWidth) * 0.4;
@@ -151,6 +189,34 @@ function RightGroup(props: Props): JSX.Element {
                 <Icon component={FilterIcon} />
                 Filters
             </Button>
+            <Button
+                type='link'
+                className='cvat-annotation-header-preload-button cvat-annotation-header-button'
+                onClick={startPreload}
+                disabled={preload.active}
+            >
+                <CloudDownloadOutlined />
+                Preload
+            </Button>
+            <Modal
+                open={preload.active}
+                title='Preloading job'
+                closable={false}
+                maskClosable={false}
+                className='cvat-annotation-preload-modal'
+                footer={[
+                    <Button key='cancel' onClick={cancelPreload}>
+                        Cancel
+                    </Button>,
+                ]}
+            >
+                <Progress percent={preloadPercent} />
+                <div>
+                    {preload.total > 0 ?
+                        `Cached ${preload.cached} / ${preload.total} chunks` :
+                        'Preparing\u2026'}
+                </div>
+            </Modal>
             <div>
                 <Select
                     popupClassName='cvat-workspace-selector-dropdown'

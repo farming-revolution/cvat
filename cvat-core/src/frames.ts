@@ -1113,6 +1113,58 @@ export function getCachedChunks(jobID: number): number[] {
     return frameDataCache[jobID].provider.cachedChunks(true);
 }
 
+export async function cacheJobChunks(
+    jobID: number,
+    getChunk: (chunkIndex: number, quality: ChunkQuality) => Promise<ArrayBuffer>,
+    onProgress?: (cached: number, total: number) => void,
+    signal?: AbortSignal,
+): Promise<void> {
+    // Pre-fetch every compressed chunk of a job so the server-side (kvrocks) cache
+    // is warmed. The chunks are only requested as raw buffers (not decoded), so this
+    // does not consume the bounded in-memory decoded-frame cache. Warmed chunks live
+    // until the regular media-cache TTL expires (no extra persistence is added here).
+    const meta = await getFramesMeta('job', jobID);
+    const total = meta.chunkCount;
+
+    if (typeof onProgress === 'function') {
+        onProgress(0, total);
+    }
+
+    if (total === 0) {
+        return;
+    }
+
+    // Use a small amount of concurrency so the server-side cache is warmed quickly
+    // without overwhelming the (low core count) chunk worker that prepares chunks.
+    const concurrency = Math.min(2, total);
+    let nextChunk = 0;
+    let completed = 0;
+
+    const worker = async (): Promise<void> => {
+        for (;;) {
+            if (signal?.aborted) {
+                // Stop gracefully; already warmed chunks remain cached on the server.
+                return;
+            }
+
+            const chunkIndex = nextChunk;
+            if (chunkIndex >= total) {
+                return;
+            }
+            nextChunk += 1;
+
+            await getChunk(chunkIndex, ChunkQuality.COMPRESSED);
+
+            completed += 1;
+            if (typeof onProgress === 'function') {
+                onProgress(completed, total);
+            }
+        }
+    };
+
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+}
+
 export async function getJobFrameNumbers(jobID: number): Promise<number[]> {
     if (!(jobID in frameDataCache)) {
         return [];

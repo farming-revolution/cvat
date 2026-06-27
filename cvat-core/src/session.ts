@@ -289,6 +289,15 @@ function buildDuplicatedAPI(prototype) {
                     );
                     return result;
                 },
+                async cacheChunks(onProgress, signal) {
+                    const result = await PluginRegistry.apiWrapper.call(
+                        this,
+                        prototype.frames.cacheChunks,
+                        onProgress,
+                        signal,
+                    );
+                    return result;
+                },
             },
             writable: true,
         }),
@@ -441,6 +450,10 @@ export class Session {
             frameTo: number,
         ) => Promise<number | null>;
         chunk: (chunk: number, quality: ChunkQuality) => Promise<ArrayBuffer>;
+        cacheChunks: (
+            onProgress?: (cached: number, total: number) => void,
+            signal?: AbortSignal,
+        ) => Promise<void>;
     };
 
     public logger: {
@@ -500,6 +513,7 @@ export class Session {
             contextImage: Object.getPrototypeOf(this).frames.contextImage.bind(this),
             contextImageData: Object.getPrototypeOf(this).frames.contextImageData.bind(this),
             chunk: Object.getPrototypeOf(this).frames.chunk.bind(this),
+            cacheChunks: Object.getPrototypeOf(this).frames.cacheChunks.bind(this),
         };
 
         this.logger = {
