@@ -82,3 +82,35 @@ test('invalid explicit mutable keyframes reset the default through undo/redo', a
     await history.redo(1);
     assert.deepEqual(track.toJSON(), after);
 });
+
+const ObjectState = require('../../cvat-core/src/object-state.ts').default;
+globalThis.crypto ??= require('node:crypto').webcrypto;
+for (const objectType of ['shape', 'track']) {
+    for (const shapeType of ['points', 'rectangle']) {
+        test(`new ${objectType} ${shapeType} gets a stable identity through undo/redo`, async () => {
+            const { injection, history } = fixture();
+            const collection = new AnnotationCollection({ ...injection, labels: Object.values(injection.labels), stopFrame: 2 });
+            const state = () => new ObjectState({ objectType, shapeType, label: injection.labels[1], frame: 0,
+                points: shapeType === 'points' ? [20, 30] : [10, 20, 40, 50], attributes: { 10: '' } });
+            collection.put([state(), state()]);
+            const before = collection.export();
+            const items = before[objectType === 'track' ? 'tracks' : 'shapes'];
+            const identities = items.map((item) => item.attributes.find((attr) => attr.spec_id === 10).value);
+            const role = shapeType === 'points' ? 'plant' : 'row';
+            identities.forEach((value) => assert.match(value, new RegExp(`^[0-9a-f-]{36}:${role}$`)));
+            assert.notEqual(identities[0], identities[1]);
+            await history.undo(1);
+            assert.equal(collection.export()[objectType === 'track' ? 'tracks' : 'shapes'].length, 0);
+            await history.redo(1);
+            assert.deepEqual(JSON.parse(JSON.stringify(collection.export())), JSON.parse(JSON.stringify(before)));
+        });
+    }
+}
+test('loading unidentified tracks does not silently assign a new identity', () => {
+    const { track, injection, history } = fixture();
+    const collection = new AnnotationCollection({ ...injection, labels: Object.values(injection.labels), stopFrame: 2 });
+    const old = track.toJSON();
+    old.attributes = [{ spec_id: 10, value: '' }];
+    collection.import({ tracks: [old], shapes: [], tags: [] });
+    assert.equal(collection.export().tracks[0].attributes.find((attr) => attr.spec_id === 10).value, '');
+});

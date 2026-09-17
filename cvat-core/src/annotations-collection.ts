@@ -1078,6 +1078,20 @@ export default class Collection {
                 return accumulator;
             }, {});
 
+            // Only newly created objects receive an identity. Loading and splitting
+            // use import(), so old unidentified fragments remain reviewable.
+            const originSpec = state.label.attributes.find((attr) => attr.name === 'fr_origin' && !attr.mutable);
+            if (originSpec && state.objectType !== 'tag' &&
+                (state.shapeType === ShapeType.POINTS || state.shapeType === ShapeType.RECTANGLE)) {
+                const existing = attributes.find((attr) => attr.spec_id === originSpec.id);
+                if (!existing?.value) {
+                    const role = state.shapeType === ShapeType.RECTANGLE ? 'row' : 'plant';
+                    const value = `${globalThis.crypto.randomUUID()}:${role}`;
+                    if (existing) existing.value = value;
+                    else attributes.push({ spec_id: originSpec.id, value });
+                }
+            }
+
             // Construct whole objects from states
             if (state.objectType === 'tag') {
                 constructed.tags.push({
