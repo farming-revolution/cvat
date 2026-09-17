@@ -1090,6 +1090,27 @@ export class Track extends Drawn {
         }
         this.appendDefaultAttributes(label);
 
+        // Relabeling a track must retain compatible identity and per-frame
+        // attributes, just as relabeling a standalone shape does.
+        for (const attribute of redoLabel.attributes) {
+            const oldAttribute = undoLabel.attributes.find((candidate) => (
+                candidate.name === attribute.name && candidate.mutable === attribute.mutable
+            ));
+            if (!oldAttribute) continue;
+            const initialValue = undoAttributes.unmutable[oldAttribute.id];
+            if (initialValue !== undefined && validateAttributeValue(initialValue, attribute)) {
+                this.attributes[attribute.id] = initialValue;
+            }
+            if (attribute.mutable) {
+                for (const shape of undoAttributes.mutable) {
+                    const value = shape.attributes[oldAttribute.id];
+                    if (value !== undefined && validateAttributeValue(value, attribute)) {
+                        this.shapes[shape.frame].attributes[attribute.id] = value;
+                    }
+                }
+            }
+        }
+
         const redoAttributes = {
             unmutable: { ...this.attributes },
             mutable: Object.keys(this.shapes).map((key) => ({
