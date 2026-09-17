@@ -1104,8 +1104,10 @@ export class Track extends Drawn {
             if (attribute.mutable) {
                 for (const shape of undoAttributes.mutable) {
                     const value = shape.attributes[oldAttribute.id];
-                    if (value !== undefined && validateAttributeValue(value, attribute)) {
-                        this.shapes[shape.frame].attributes[attribute.id] = value;
+                    if (value !== undefined) {
+                        this.shapes[shape.frame].attributes[attribute.id] = (
+                            validateAttributeValue(value, attribute) ? value : attribute.defaultValue
+                        );
                     }
                 }
             }

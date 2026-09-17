@@ -67,3 +67,18 @@ test('split followed by relabel retains the same origin in both fragments', () =
         assert.deepEqual(split.toJSON().attributes, [{ spec_id: 20, value: origin }]);
     }
 });
+
+test('invalid explicit mutable keyframes reset the default through undo/redo', async () => {
+    const { track, destination, history } = fixture(label(2, ['tiny', 'small']));
+    const before = track.toJSON();
+    track.saveLabel(destination, 0);
+    assert.equal(track.getAttributes(0)[21], 'small');
+    assert.equal(track.getAttributes(1)[21], 'small'); // No explicit value: inherit.
+    assert.equal(track.getAttributes(2)[21], 'tiny'); // Explicit invalid large: reset.
+    assert.deepEqual(track.toJSON().shapes[1].attributes, [{ spec_id: 21, value: 'tiny' }]);
+    const after = track.toJSON();
+    await history.undo(1);
+    assert.deepEqual(track.toJSON(), before);
+    await history.redo(1);
+    assert.deepEqual(track.toJSON(), after);
+});
