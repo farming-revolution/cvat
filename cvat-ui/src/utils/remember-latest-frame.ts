@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import config from 'config';
+import { writeBrowserPreference } from './browser-storage';
 
 export function readLatestFrameStorage(): Map<number, number> {
     let latestFrameStorage: [number, number][] = [];
@@ -35,7 +36,7 @@ export function writeLatestFrame(jobID: number, frame: number): void {
                 .slice(0, config.LOCAL_STORAGE_LAST_FRAME_MEMORY_LIMIT - 1),
         ]);
     }
-    localStorage.setItem('latestFrameStorage', JSON.stringify(Array.from(storage.entries())));
+    writeBrowserPreference('latestFrameStorage', JSON.stringify(Array.from(storage.entries())));
 }
 
 export function readLatestFrame(jobID: number): number | null {

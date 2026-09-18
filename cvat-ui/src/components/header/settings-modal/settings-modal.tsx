@@ -6,12 +6,11 @@
 import './styles.scss';
 import React, { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
-import { shallowEqual } from 'utils/redux';
+import { shallowEqual, ThunkDispatch } from 'utils/redux';
 import Tabs from 'antd/lib/tabs';
 import Text from 'antd/lib/typography/Text';
 import Modal from 'antd/lib/modal/Modal';
 import Button from 'antd/lib/button';
-import notification from 'antd/lib/notification';
 import { PlayCircleOutlined, LaptopOutlined, BuildOutlined } from '@ant-design/icons';
 
 import { restoreSettingsAsync, updateCachedSettings } from 'actions/settings-actions';
@@ -19,6 +18,7 @@ import WorkspaceSettingsContainer from 'containers/header/settings-modal/workspa
 import PlayerSettingsContainer from 'containers/header/settings-modal/player-settings';
 import ShortcutsSettingsContainer from 'containers/header/settings-modal/shortcuts-settings';
 import { CombinedState } from 'reducers';
+import { reportBrowserStorageFailure } from 'utils/browser-storage';
 
 interface SettingsModalProps {
     visible: boolean;
@@ -33,7 +33,7 @@ function SettingsModal(props: SettingsModalProps): JSX.Element {
         shortcuts: state.shortcuts,
     }), shallowEqual);
     const [settingsInitialized, setSettingsInitialized] = useState(false);
-    const dispatch = useDispatch();
+    const dispatch = useDispatch<ThunkDispatch>();
 
     useEffect(() => {
         if (!settingsInitialized) return;
@@ -42,16 +42,18 @@ function SettingsModal(props: SettingsModalProps): JSX.Element {
     }, [settingsInitialized, settings, shortcuts]);
 
     useEffect(() => {
-        try {
-            dispatch(restoreSettingsAsync());
-        } catch {
-            notification.error({
-                message: 'Failed to load settings from local storage',
-                className: 'cvat-notification-notice-load-settings-fail',
-            });
-        } finally {
-            setSettingsInitialized(true);
-        }
+        let mounted = true;
+        const restoreSettings = async (): Promise<void> => {
+            try {
+                await dispatch(restoreSettingsAsync());
+            } catch (error: unknown) {
+                reportBrowserStorageFailure('clientSettings', 'read', error);
+            } finally {
+                if (mounted) setSettingsInitialized(true);
+            }
+        };
+        restoreSettings();
+        return () => { mounted = false; };
     }, []);
 
     const tabItems = [

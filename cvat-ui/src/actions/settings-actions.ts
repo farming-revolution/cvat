@@ -15,6 +15,7 @@ import { SerializedImageFilter } from 'cvat-core-wrapper';
 import { ImageFilter, ImageFilterAlias } from 'utils/image-processing';
 import GammaCorrection, { GammaFilterOptions } from 'utils/fabric-wrapper/gamma-correction';
 import { resolveConflicts } from 'utils/conflict-detector';
+import { writeBrowserPreference } from 'utils/browser-storage';
 import { shortcutsActions } from './shortcuts-actions';
 
 export enum SettingsActionTypes {
@@ -531,5 +532,5 @@ export function updateCachedSettings(settings: CombinedState['settings'], shortc
             .map((imageFilter) => imageFilter.modifier.toJSON()),
     };
 
-    localStorage.setItem('clientSettings', JSON.stringify(settingsForSaving));
+    writeBrowserPreference('clientSettings', JSON.stringify(settingsForSaving));
 }
