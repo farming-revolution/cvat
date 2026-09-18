@@ -85,22 +85,14 @@ test('replaces preferences normally without accumulating copies or issuing a war
     assert.equal(f.notifications.length, 0);
 });
 
-test('quota failure keeps old data and reports sizes without leaking stored or attempted values', () => {
+test('quota failure keeps old data and shows a concise warning without debug output', () => {
     const f = fixture({ clientSettings: 'old-secret', largeEntry: 'private-value'.repeat(100) });
     const before = [...f.entries];
     f.failWrites();
     const { writeBrowserPreference } = f.load('utils/browser-storage.ts');
     assert.equal(writeBrowserPreference('clientSettings', 'new-secret-longer'), false);
     assert.deepEqual([...f.entries], before);
-    const details = f.warnings[0][1];
-    assert.equal(details.key, 'clientSettings');
-    assert.equal(details.operation, 'write');
-    assert.equal(details.errorName, 'QuotaExceededError');
-    assert.equal(details.browserMessage, 'The quota has been exceeded.');
-    assert.equal(details.estimatedGrowthBytes, ('new-secret-longer'.length - 'old-secret'.length) * 2);
-    assert.equal(details.totalEstimatedBytes, before.reduce((n, [k, v]) => n + (k.length + v.length) * 2, 0));
-    assert.equal(details.largestEntries[0].key, 'largeEntry');
-    assert.equal(details.entryCount, 2);
+    assert.equal(f.warnings.length, 0);
     assert.match(f.notifications[0].description, /remain active in this tab/);
     for (const secret of ['old-secret', 'new-secret-longer', 'private-value']) {
         assert.equal(JSON.stringify([f.warnings, f.notifications]).includes(secret), false);
@@ -112,22 +104,21 @@ test('repeated failures warn once per preference while writes resume after space
     const { writeBrowserPreference } = f.load('utils/browser-storage.ts');
     f.failWrites();
     for (let n = 0; n < 100; n++) writeBrowserPreference('clientSettings', String(n));
-    assert.equal(f.warnings.length, 1);
+    assert.equal(f.warnings.length, 0);
     assert.equal(f.notifications.length, 1);
     writeBrowserPreference('latestFrameStorage', '[]');
-    assert.equal(f.warnings.length, 2);
+    assert.equal(f.notifications.length, 2);
     f.recover();
     assert.equal(writeBrowserPreference('clientSettings', 'saved'), true);
     assert.equal(f.entries.get('clientSettings'), 'saved');
 });
 
-test('blocked localStorage getter and failed diagnostic inspection are nonfatal', () => {
+test('blocked localStorage access remains nonfatal', () => {
     const f = fixture();
     f.denyAccess();
     const { writeBrowserPreference } = f.load('utils/browser-storage.ts');
     assert.equal(writeBrowserPreference('clientSettings', '{}'), false);
-    assert.equal(f.warnings[0][1].errorName, 'SecurityError');
-    assert.match(f.warnings[0][1].storageInspection, /Unavailable/);
+    assert.equal(f.warnings.length, 0);
     assert.match(f.notifications[0].description, /security or privacy/);
 });
 
@@ -135,11 +126,8 @@ test('empty storage quota failure does not falsely claim that existing data fill
     const f = fixture();
     f.failWrites();
     f.load('utils/browser-storage.ts').writeBrowserPreference('clientSettings', '{}');
-    const details = f.warnings[0][1];
-    assert.equal(details.totalEstimatedBytes, 0);
-    assert.equal(details.previousEntryEstimatedBytes, 0);
-    assert.equal(details.estimatedGrowthBytes, ('clientSettings'.length + 2) * 2);
-    assert.match(details.reason, /or browser restrictions/);
+    assert.equal(f.warnings.length, 0);
+    assert.match(f.notifications[0].description, /quota was exceeded/);
 });
 
 test('invalid saved JSON can be reported without exposing its contents', () => {
@@ -161,7 +149,7 @@ test('the actual settings save path survives quota failure and preserves in-memo
     const before = JSON.stringify({ settings, shortcuts });
     assert.doesNotThrow(() => updateCachedSettings(settings, shortcuts));
     assert.equal(JSON.stringify({ settings, shortcuts }), before);
-    assert.equal(f.warnings[0][1].key, 'clientSettings');
+    assert.equal(f.notifications[0].message, 'Could not remember your preferences');
     f.recover();
     updateCachedSettings(settings, shortcuts);
     assert.deepEqual(JSON.parse(f.entries.get('clientSettings')), {
@@ -175,7 +163,7 @@ test('last-frame persistence does not interrupt navigation when quota is exhaust
     const { writeLatestFrame, readLatestFrame } = f.load('utils/remember-latest-frame.ts');
     assert.doesNotThrow(() => writeLatestFrame(10, 21));
     assert.equal(readLatestFrame(10), 20);
-    assert.equal(f.warnings[0][1].key, 'latestFrameStorage');
+    assert.equal(f.notifications[0].message, 'Could not remember your preferences');
     f.recover();
     writeLatestFrame(10, 21);
     assert.equal(readLatestFrame(10), 21);

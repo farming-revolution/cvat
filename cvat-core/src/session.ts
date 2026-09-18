@@ -453,7 +453,7 @@ export class Session {
         cacheChunks: (
             onProgress?: (cached: number, total: number) => void,
             signal?: AbortSignal,
-        ) => Promise<void>;
+        ) => Promise<{ cached: number; total: number }>;
     };
 
     public logger: {

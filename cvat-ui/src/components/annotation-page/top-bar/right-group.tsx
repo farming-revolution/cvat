@@ -3,7 +3,9 @@
 //
 // SPDX-License-Identifier: MIT
 
-import React, { useEffect, useCallback, useState, useRef } from 'react';
+import React, {
+    useEffect, useCallback, useState, useRef,
+} from 'react';
 import { Col } from 'antd/lib/grid';
 import Icon, { InfoCircleOutlined, CloudDownloadOutlined, DeleteOutlined } from '@ant-design/icons';
 import Select from 'antd/lib/select';
@@ -58,12 +60,22 @@ function RightGroup(props: Props): JSX.Element {
 
         jobInstance.frames.cacheChunks((cached: number, total: number) => {
             setPreload({ active: true, cached, total });
-        }, controller.signal).then(() => {
+        }, controller.signal).then(({ cached, total }) => {
             if (!controller.signal.aborted) {
-                notification.success({
-                    message: 'Job preloaded',
-                    description: 'All frames of the job are cached on this computer for fast access.',
-                });
+                if (cached === total) {
+                    notification.success({
+                        message: 'Job preloaded',
+                        description: 'All job chunks are currently cached on this computer. ' +
+                            'Older cached chunks are removed when storage space is needed.',
+                    });
+                } else {
+                    notification.warning({
+                        message: 'Job only partially cached',
+                        description: `${cached} of ${total} chunks are stored on this computer. ` +
+                            'The browser cache keeps at least 512 MiB free. ' +
+                            'Uncached frames will download when needed.',
+                    });
+                }
             }
         }).catch((error: unknown) => {
             notification.error({
@@ -87,11 +99,20 @@ function RightGroup(props: Props): JSX.Element {
                 'They will be downloaded again from the server when next needed.',
             okText: 'Clear',
             onOk: async () => {
-                await clearLocalChunkCache();
-                notification.success({
-                    message: 'Local cache cleared',
-                    description: 'Preloaded frames were removed from this computer.',
-                });
+                try {
+                    await clearLocalChunkCache();
+                    notification.success({
+                        message: 'Local cache cleared',
+                        description: 'Preloaded frames were removed from this computer.',
+                    });
+                } catch (error: unknown) {
+                    notification.error({
+                        message: 'Could not clear the local cache',
+                        description: `The browser could not remove downloaded frames. ${
+                            error instanceof Error ? error.message : String(error)}`,
+                    });
+                    throw error;
+                }
             },
         });
     }, []);
@@ -241,7 +262,7 @@ function RightGroup(props: Props): JSX.Element {
                 <Progress percent={preloadPercent} />
                 <div>
                     {preload.total > 0 ?
-                        `Cached ${preload.cached} / ${preload.total} chunks` :
+                        `Fetched ${preload.cached} / ${preload.total} chunks` :
                         'Preparing\u2026'}
                 </div>
             </Modal>
