@@ -32,13 +32,13 @@ from django.core.exceptions import ValidationError
 from django.db import connection, transaction
 from django.utils.http import urlencode
 from django_rq.queues import DjangoRQ
-from django_sendfile import sendfile as _sendfile
 from PIL import Image
 from redis.lock import Lock
 from rest_framework.reverse import reverse as _reverse
 from rq.job import Job as RQJob
 
 from cvat.apps.engine.types import ExtendedRequest
+from cvat.utils.sendfile import sendfile as _sendfile
 
 Import = namedtuple("Import", ["module", "name", "alias"])
 
