@@ -1,5 +1,5 @@
 # Apply the narrowly scoped backend fixes to the existing production image.
-# Use an immutable local image ID for BASE_IMAGE when deploying.
+# Use a verified local rollback tag for BASE_IMAGE when deploying.
 ARG BASE_IMAGE=cvat/server:v2.64.0-farming
 FROM ${BASE_IMAGE}
 ARG REVISION
