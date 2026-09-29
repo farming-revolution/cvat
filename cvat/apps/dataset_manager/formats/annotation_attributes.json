@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "attributes": {
+    "size": {
+      "label": "Size",
+      "description": "Plant size using the existing annotation convention.",
+      "type": "choice",
+      "values": [
+        "tiny",
+        "small",
+        "medium",
+        "large"
+      ],
+      "undefined": "",
+      "cvat_default": "",
+      "temporal_scope": "frame",
+      "applicable_labels": [
+        "*"
+      ],
+      "default_enabled": true,
+      "required": true,
+      "yaml_key": "size",
+      "marv_tag": "size_label",
+      "dashboard_values": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    "disease_level": {
+      "label": "Disease level",
+      "description": "Optional visual assessment; unassessed does not mean healthy.",
+      "type": "choice",
+      "values": [
+        -1,
+        0,
+        1,
+        2,
+        3
+      ],
+      "value_labels": [
+        "Not assessed",
+        "Healthy",
+        "Mild infection",
+        "Strong infection",
+        "Total infection"
+      ],
+      "undefined": -1,
+      "temporal_scope": "track",
+      "applicable_labels": [
+        "*"
+      ],
+      "default_enabled": false,
+      "required": false,
+      "yaml_key": "disease_level",
+      "marv_tag": "disease_label"
+    },
+    "disease_name": {
+      "label": "Disease name",
+      "description": "Optional disease name or suspected diagnosis.",
+      "type": "text",
+      "undefined": "",
+      "temporal_scope": "track",
+      "applicable_labels": [
+        "*"
+      ],
+      "default_enabled": false,
+      "required": false,
+      "yaml_key": "disease_name",
+      "marv_tag": "disease_label"
+    }
+  },
+  "supervision": {
+    "tag_label": "Supervision",
+    "absence_prefix": "Absent: ",
+    "fields": {
+      "crop_stems_complete": {
+        "label": "Crop stems",
+        "type": "choice",
+        "values": [
+          "inherit",
+          "complete",
+          "incomplete"
+        ],
+        "default": "inherit"
+      },
+      "weed_stems_complete": {
+        "label": "Weed stems",
+        "type": "choice",
+        "values": [
+          "inherit",
+          "complete",
+          "incomplete"
+        ],
+        "default": "inherit"
+      },
+      "row_bb_complete": {
+        "label": "Rows",
+        "type": "choice",
+        "values": [
+          "inherit",
+          "complete",
+          "incomplete"
+        ],
+        "default": "inherit"
+      }
+    }
+  },
+  "weed_classes": [
+    "AckerGauchheil",
+    "AckerHellerkraut",
+    "AckerVergissmeinnicht",
+    "Ackerfuchsschwanz",
+    "Ackerhundskamille",
+    "Ackerkratzdistel",
+    "Ackersenf",
+    "Ackerstiefmuetterchen",
+    "AufrechteTrespe",
+    "Background",
+    "Blutfingerhirse",
+    "Buchweizen",
+    "Dicotyl",
+    "EchteKamille",
+    "EfeublaettrigerEhrenpreis",
+    "Flohknoeterich",
+    "Flughafer",
+    "GemeineQuecke",
+    "GemeinerErdrauch",
+    "Giftpflanze",
+    "GrosseBorstenhirse",
+    "GrueneBorstenhirse",
+    "Hederich",
+    "Hirtentaeschelkraut",
+    "HuehnerHirse",
+    "Hundspetersilie",
+    "KleineBrennessel",
+    "KlettenLabkraut",
+    "Kornblume",
+    "Kreuzkraut",
+    "Loewenzahn",
+    "Monocotyl",
+    "PersischerEhrenpreis",
+    "RoteTaubnessel",
+    "Samtpappel",
+    "Schachtelhalm",
+    "SchwarzerNachtschatten",
+    "Stechapfel",
+    "Storchschnabel",
+    "Vogelknoeterich",
+    "Vogelmiere",
+    "Weed",
+    "WeisserGaensefuss",
+    "Windenknoeterich",
+    "ZurueckGekruemmterAmaranth"
+  ],
+  "hash": "sha256:d1ebb71305dd5befdf086b79155b376681c20da83bbad903b68a1df28774904e"
+}

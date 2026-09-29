@@ -136,6 +136,7 @@ import cvat.apps.dataset_manager.formats.camvid
 import cvat.apps.dataset_manager.formats.cityscapes
 import cvat.apps.dataset_manager.formats.coco
 import cvat.apps.dataset_manager.formats.cvat
+import cvat.apps.dataset_manager.formats.farming_revolution
 import cvat.apps.dataset_manager.formats.datumaro
 import cvat.apps.dataset_manager.formats.icdar
 import cvat.apps.dataset_manager.formats.imagenet

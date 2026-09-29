@@ -165,6 +165,13 @@ def export(
             format_name=dst_format,
         )
 
+        fr_revision = None
+        if dst_format == "Farming Revolution 1.0":
+            from .formats.farming_revolution import source_revision
+            fr_revision = source_revision(db_instance)
+            stem, extension = osp.splitext(output_path)
+            output_path = f"{stem}-{fr_revision}{extension}"
+
         # acquire a lock 2 times instead of using one long lock:
         # 1. to check whether the file exists or not
         # 2. to create a file when it doesn't exist
@@ -192,6 +199,9 @@ def export(
                 save_images=save_images,
                 temp_dir=temp_subdir,
             )
+
+            if fr_revision is not None and source_revision(db_instance) != fr_revision:
+                raise ValueError("Task annotations, labels or frames changed during export; retry")
 
             with get_export_cache_lock(
                 output_path,

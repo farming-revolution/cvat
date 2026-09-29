@@ -856,7 +856,16 @@ class JobAnnotation:
 
                 raise not_found
 
-        self.create(job_data.data.slice(self.start_frame, self.stop_frame).serialize())
+        expected = job_data.data.slice(self.start_frame, self.stop_frame).serialize()
+        native_import = importer.DISPLAY_NAME == 'Farming Revolution 1.0'
+        if native_import:
+            self.__init__(self.db_job.id, prefetch_images=True)
+        self.create(expected)
+        if native_import:
+            from .formats.farming_revolution import verify_native_readback
+            readback = JobAnnotation(self.db_job.id)
+            readback.init_from_db()
+            verify_native_readback(expected, readback.data, self.db_job.segment.task.get_labels())
 
 
 class TaskAnnotation:
@@ -1082,7 +1091,17 @@ class TaskAnnotation:
 
                 raise not_found
 
-        self.create(task_data.data.serialize())
+        native_import = importer.DISPLAY_NAME == 'Farming Revolution 1.0'
+        if native_import:
+            # delete() evaluated the prefetched job/label queryset before definitions were added.
+            self.db_jobs = self.db_jobs.all()
+        expected = task_data.data.serialize()
+        self.create(expected)
+        if native_import:
+            from .formats.farming_revolution import verify_native_readback
+            readback = TaskAnnotation(self.db_task.id)
+            readback.init_from_db()
+            verify_native_readback(expected, readback.data, self.db_task.get_labels())
 
     @property
     def data(self):

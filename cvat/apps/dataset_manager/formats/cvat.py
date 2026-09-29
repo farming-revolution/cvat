@@ -857,6 +857,9 @@ def dump_as_cvat_annotation(dumper, annotations: JobData | TaskData | ProjectDat
         def dump_labeled_shapes(shapes, is_skeleton=False):
             for shape in shapes:
                 dump_data = OrderedDict([("label", shape.label), ("source", shape.source)])
+                if getattr(annotations, "_fr_export", None) is not None:
+                    from .farming_revolution import shape_identity_attributes
+                    dump_data.update(shape_identity_attributes(annotations, frame_annotation, shape))
                 if is_skeleton:
                     dump_data.update(OrderedDict([("outside", str(int(shape.outside)))]))
 

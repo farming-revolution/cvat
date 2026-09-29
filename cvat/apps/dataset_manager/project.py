@@ -94,6 +94,7 @@ class ProjectAnnotation:
                 "use_cache": False,
                 "use_zip_chunks": True,
                 "image_quality": 70,
+                **({"sorting_method": files["sorting_method"]} if "sorting_method" in files else {}),
             }
         )
         data_serializer.is_valid(raise_exception=True)
@@ -171,6 +172,8 @@ class ProjectAnnotation:
         load_dataset_data(self, *args, **kwargs)
 
     def import_dataset(self, dataset_file, importer, **options):
+        if importer.DISPLAY_NAME == 'Farming Revolution 1.0':
+            self.init_from_db()
         project_data = ProjectData(
             annotation_irs=self.annotation_irs,
             db_project=self.db_project,
@@ -199,6 +202,10 @@ class ProjectAnnotation:
 
                 raise not_found
 
+        native_import = importer.DISPLAY_NAME == 'Farming Revolution 1.0'
+        if native_import:
+            for writer in self.task_annotations.values():
+                writer.db_jobs = writer.db_jobs.all()
         self.create(
             {
                 tid: ir.serialize()
@@ -206,6 +213,12 @@ class ProjectAnnotation:
                 if tid in project_data.new_tasks
             }
         )
+        if native_import:
+            from .formats.farming_revolution import verify_native_readback
+            for tid, ir in self.annotation_irs.items():
+                readback = TaskAnnotation(tid)
+                readback.init_from_db()
+                verify_native_readback(ir.serialize(), readback.data, self.db_project.get_labels())
 
     @property
     def data(self) -> dict:
