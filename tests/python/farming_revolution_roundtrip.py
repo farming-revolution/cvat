@@ -161,3 +161,85 @@ archive=prepare_export(TaskData(AnnotationIR('2d',raw),source,host='https://test
 assert not archive['tasks'][0]['tracking_ids']
 assert any('Overlapping' in message for message in archive['tasks'][0]['warnings'])
 print('Ambiguous reserved identities rejected')
+
+# Complete project datasets preserve exact media paths (including collisions and deleted frames).
+# Only media transport/task image ingestion is mocked; import and DB readback are real.
+from types import SimpleNamespace
+from cvat.apps.dataset_manager.formats.farming_revolution import project_media_members
+project_media = Project.objects.bulk_create([Project(name='media-source')])[0]
+first, first_raw = fixture('first-media')
+second, _ = fixture('second-media')
+Label.objects.filter(task=second).delete()
+Label.objects.filter(task=first).update(project=project_media, task=None)
+Task.objects.filter(pk__in=[first.id, second.id]).update(project=project_media)
+first.refresh_from_db(); second.refresh_from_db()
+first.data.deleted_frames = [1]; first.data.save(update_fields=['deleted_frames'])
+contents = {first.id: b'FIRST', second.id: b'SECOND'}
+def media_provider(task):
+    return SimpleNamespace(iterate_frames=lambda **kwargs: iter([
+        SimpleNamespace(data=BytesIO(contents[task.id] + str(index).encode())) for index in range(4)
+    ]))
+copied_media = {}
+def create_media_task(owner, task_fields, files, project_data):
+    data = Data.objects.bulk_create([Data(size=len(files['media']), stop_frame=len(files['media'])-1)])[0]
+    task = Task.objects.bulk_create([Task(data=data, name=task_fields['name'], subset=task_fields['subset'],
+                                         project=owner.db_project, mode='annotation', overlap=0)])[0]
+    segment = Segment.objects.bulk_create([Segment(task=task, start_frame=0, stop_frame=data.size-1)])[0]
+    Job.objects.bulk_create([Job(segment=segment)])
+    copied_media[task.name] = [Path(path).read_bytes() for path in files['media']]
+    Image.objects.bulk_create([Image(data=data, frame=i, path=str(Path(path).relative_to(files['data_root'])), width=100, height=100)
+                               for i, path in enumerate(files['media'])])
+    owner._init_task_from_db(task.id)
+    project_data.new_tasks.add(task.id)
+    project_data.init()
+with TemporaryDirectory() as directory, patch('cvat.apps.dataset_manager.task.handle_annotations_change'):
+    path = Path(directory)/'dataset.zip'; stage = Path(directory)/'stage'; stage.mkdir()
+    dataset = ProjectData({first.id: AnnotationIR('2d', deepcopy(first_raw)), second.id: AnnotationIR('2d', deepcopy(first_raw))}, project_media)
+    with patch('cvat.apps.dataset_manager.formats.cvat.make_frame_provider', media_provider), path.open('wb') as f:
+        export_farming_revolution()(f, str(stage), dataset, save_images=True)
+    with path.open('rb') as f: exported = read_archive(f)
+    with zipfile.ZipFile(path) as bundle:
+        members = project_media_members(exported, set(bundle.namelist()))
+        assert bundle.read(members[0][1][1]) == b'FIRST1', 'Deleted frame image was dropped'
+        assert bundle.read(members[1][0][1]) == b'SECOND0', 'Second task received first task media'
+        legacy = deepcopy(exported)
+        for record in legacy['tasks']:
+            for frame in record['frames']: frame.pop('media_path')
+        try: project_media_members(legacy, set(bundle.namelist()))
+        except ValueError as error: assert 'Ambiguous' in str(error)
+        else: raise AssertionError('Ambiguous legacy media mapping was guessed')
+    target_project = Project.objects.bulk_create([Project(name='media-target')])[0]
+    with patch.object(ProjectAnnotation, 'add_task', create_media_task), transaction.atomic(), path.open('rb') as f:
+        ProjectAnnotation(target_project.id).import_dataset(f, import_farming_revolution())
+    assert copied_media == {'first-media': [b'FIRST'+str(i).encode() for i in range(4)],
+                            'second-media': [b'SECOND'+str(i).encode() for i in range(4)]}
+    assert Task.objects.get(project=target_project, name='first-media').data.deleted_frames == [1]
+    for task in target_project.tasks.all():
+        readback = TaskAnnotation(task.id); readback.init_from_db()
+        assert len(readback.data['tracks']) == 1 and len(readback.data['tags']) == 1
+print('Project recreation preserves duplicate filenames, deleted frames, native grouping and distinct media')
+
+# Whole-task writes used by mixed-bag synchronization must retain foreign native IDs.
+from cvat.apps.engine.serializers import LabeledDataSerializer
+
+def without_ids(value):
+    if isinstance(value, dict): return {k: without_ids(v) for k, v in value.items() if k != 'id'}
+    if isinstance(value, list): return [without_ids(v) for v in value]
+    return value
+
+with patch('cvat.apps.dataset_manager.task.handle_annotations_change'):
+    for multi_job, continuous in ((False, False), (True, False), (True, True)):
+        target, raw = fixture('retained-native-identities')
+        if continuous:
+            raw['tracks'][0]['shapes'] = [raw['tracks'][0]['shapes'][0], raw['tracks'][0]['shapes'][-1]]
+        if multi_job:
+            Segment.objects.filter(task=target).update(stop_frame=1)
+            segment = Segment.objects.bulk_create([Segment(task=target, start_frame=2, stop_frame=3)])[0]
+            Job.objects.bulk_create([Job(segment=segment)])
+        with transaction.atomic(): TaskAnnotation(target.id).put(without_ids(raw))
+        before = TaskAnnotation(target.id); before.init_from_db()
+        serializer = LabeledDataSerializer(data=deepcopy(before.data)); serializer.is_valid(raise_exception=True)
+        with transaction.atomic(): TaskAnnotation(target.id).put(serializer.validated_data)
+        after = TaskAnnotation(target.id); after.init_from_db()
+        assert after.data == before.data, 'Whole-task replacement changed retained native IDs or content'
+print('Native IDs survive whole-task replacement for single and multiple jobs')

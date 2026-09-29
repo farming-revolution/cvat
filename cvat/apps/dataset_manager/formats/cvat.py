@@ -1567,7 +1567,8 @@ def dump_project_anno(dst_file: BufferedWriter, project_data: ProjectData, callb
 
 
 def dump_media_files(
-    instance_data: TaskData | JobData, img_dir: str, project_data: ProjectData = None
+    instance_data: TaskData | JobData, img_dir: str, project_data: ProjectData = None,
+    *, include_all_frames: bool = False,
 ):
     frame_provider = make_frame_provider(instance_data.db_instance)
 
@@ -1581,7 +1582,8 @@ def dump_media_files(
         quality=FrameQuality.ORIGINAL,
         out_type=FrameOutputType.BUFFER,
     )
-    included_frames = instance_data.get_included_frames()
+    included_frames = set(instance_data.frame_info) if include_all_frames else instance_data.get_included_frames()
+    exported_names = {}
 
     for frame_id, frame in zip(instance_data.rel_range, frames):
         # exclude deleted frames and honeypots
@@ -1596,6 +1598,8 @@ def dump_media_files(
         os.makedirs(osp.dirname(img_path), exist_ok=True)
         with open(img_path, "wb") as f:
             f.write(frame.data.getvalue())
+        exported_names[frame_id] = frame_name + ext
+    return exported_names
 
 
 def _export_task_or_job(dst_file, temp_dir, instance_data, anno_callback, save_images=False):

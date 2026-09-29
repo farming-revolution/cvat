@@ -181,6 +181,20 @@ def export_farming_revolution(dst_file, temp_dir, instance_data, save_images=Fal
     from .cvat import dump_task_or_job_anno, dump_project_anno, dump_as_cvat_annotation, dump_media_files
     from cvat.apps.dataset_manager.util import make_zip_archive
     archive = prepare_export(instance_data)
+    if save_images:
+        project = isinstance(instance_data, ProjectData)
+        datas = list(instance_data.all_task_data) if project else [instance_data]
+        by_task = {record['task_id']: record for record in archive['tasks']}
+        for data in datas:
+            task = data.db_instance.segment.task if hasattr(data.db_instance, 'segment') else data.db_instance
+            prefix = Path('images') / (task.subset or 'default') if project else Path('images')
+            names = dump_media_files(data, str(Path(temp_dir) / prefix), instance_data if project else None,
+                                     include_all_frames=True)
+            for frame in by_task[task.id]['frames']:
+                if frame['index'] not in names:
+                    raise ValueError('Dataset export is missing archived frame ' + frame['name'])
+                # Keep original names for native identity and the exact ZIP member for media.
+                frame['media_path'] = (prefix / names[frame['index']]).as_posix()
     xml_path = Path(temp_dir) / 'annotations.xml'
     with xml_path.open('wb') as stream:
         (dump_project_anno if isinstance(instance_data, ProjectData) else dump_task_or_job_anno)(stream, instance_data, dump_as_cvat_annotation)
@@ -190,12 +204,6 @@ def export_farming_revolution(dst_file, temp_dir, instance_data, save_images=Fal
     node = XML.SubElement(root.find('meta'), FR + 'archive', {'version': '1'})
     node.text = json.dumps(archive, indent=2, ensure_ascii=False, allow_nan=False)
     XML.ElementTree(root).write(str(xml_path), encoding='utf-8', xml_declaration=True)
-    if save_images:
-        if isinstance(instance_data, ProjectData):
-            for data in instance_data.all_task_data:
-                dump_media_files(data, str(Path(temp_dir) / 'images' / (data.db_instance.subset or 'default')), instance_data)
-        else:
-            dump_media_files(instance_data, str(Path(temp_dir) / 'images'))
     make_zip_archive(temp_dir, dst_file)
 
 
@@ -318,6 +326,34 @@ def remap_native(record, target):
     return restored
 
 
+def project_media_members(archive, members):
+    """Validate every media reference before creating any tasks or writing images."""
+    result, claimed = [], set()
+    for record in archive['tasks']:
+        mapped = []
+        for frame in record['frames']:
+            relative = Path(frame['name'])
+            if relative.is_absolute() or '..' in relative.parts:
+                raise ValueError('Unsafe archived frame path')
+            explicit = frame.get('media_path')
+            candidates = [explicit] if explicit else [
+                'images/' + (record['subset'] or 'default') + '/' + frame['name'],
+                'images/' + frame['name'],
+            ]
+            matches = [name for name in candidates if name in members]
+            if not matches:
+                raise ValueError('Dataset ZIP is missing source image ' + frame['name'])
+            if len(matches) != 1 or matches[0] in claimed:
+                raise ValueError('Ambiguous archived media mapping; re-export with explicit media paths')
+            member = matches[0]
+            if Path(member).is_absolute() or '..' in Path(member).parts:
+                raise ValueError('Unsafe archived media path')
+            claimed.add(member)
+            mapped.append((frame, member))
+        result.append(mapped)
+    return result
+
+
 def _create_project_tasks(stream, temp_dir, project_data, archive, callback):
     """Create each archived task through CVAT's normal dataset-media machinery."""
     from cvat.apps.engine.models import Label, AttributeSpec
@@ -327,20 +363,16 @@ def _create_project_tasks(stream, temp_dir, project_data, archive, callback):
     if not zipfile.is_zipfile(stream):
         raise ValueError('Project recreation requires a dataset ZIP containing images')
     with zipfile.ZipFile(stream) as bundle:
-        members = set(bundle.namelist())
-        for record in archive['tasks']:
+        members = bundle.namelist()
+        if len(members) != len(set(members)):
+            raise ValueError('Duplicate dataset ZIP members')
+        media_members = project_media_members(archive, set(members))
+        for record, mapped_frames in zip(archive['tasks'], media_members):
             media = []
             directory = Path(temp_dir) / ('task-' + str(int(record['task_id'])))
             directory.mkdir()
-            for frame in record['frames']:
-                relative = Path(frame['name'])
-                if relative.is_absolute() or '..' in relative.parts:
-                    raise ValueError('Unsafe archived frame path')
-                candidates = ['images/' + (record['subset'] or 'default') + '/' + frame['name'], 'images/' + frame['name']]
-                member = next((name for name in candidates if name in members), None)
-                if member is None:
-                    raise ValueError('Dataset ZIP is missing source image ' + frame['name'])
-                destination = directory / relative
+            for frame, member in mapped_frames:
+                destination = directory / frame['name']
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(bundle.read(member))
                 media.append(str(destination))
