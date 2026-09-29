@@ -202,23 +202,13 @@ class ProjectAnnotation:
 
                 raise not_found
 
-        native_import = importer.DISPLAY_NAME == 'Farming Revolution 1.0'
-        if native_import:
-            for writer in self.task_annotations.values():
-                writer.db_jobs = writer.db_jobs.all()
-        self.create(
-            {
-                tid: ir.serialize()
-                for tid, ir in self.annotation_irs.items()
-                if tid in project_data.new_tasks
-            }
-        )
-        if native_import:
-            from .formats.farming_revolution import verify_native_readback
+        if importer.DISPLAY_NAME == 'Farming Revolution 1.0':
             for tid, ir in self.annotation_irs.items():
-                readback = TaskAnnotation(tid)
-                readback.init_from_db()
-                verify_native_readback(ir.serialize(), readback.data, self.db_project.get_labels())
+                self.task_annotations[tid].restore_native(
+                    ir.serialize(), getattr(project_data, '_fr_native_jobs', {}).get(tid))
+        else:
+            self.create({tid: ir.serialize() for tid, ir in self.annotation_irs.items()
+                         if tid in project_data.new_tasks})
 
     @property
     def data(self) -> dict:

@@ -9,6 +9,7 @@ import json
 import re
 from pathlib import Path
 import uuid
+from urllib.parse import urlsplit, urlunsplit
 from xml.etree import ElementTree as XML
 import zipfile
 
@@ -44,6 +45,12 @@ def origin(value):
     return None
 
 
+def server_identity(host):
+    """The request route must never become part of a plant's identity namespace."""
+    url = urlsplit(host or '')
+    return urlunsplit((url.scheme.lower(), url.netloc.lower(), '', '', ''))
+
+
 def tracking_ids(raw, labels, host, task_id):
     specs = {a['id']: a['name'] for label in labels for a in label['attributes']}
     attrs = {t['id']: {specs.get(a['spec_id']): a['value'] for a in t.get('attributes', [])}
@@ -77,8 +84,33 @@ def tracking_ids(raw, labels, host, task_id):
                 continue
         else:
             identity = 'track:' + str(key)
-        result[str(key)] = str(uuid.uuid5(uuid.NAMESPACE_URL, '{}/tasks/{}/{}'.format(host.rstrip('/'), task_id, identity)))
+        result[str(key)] = str(uuid.uuid5(uuid.NAMESPACE_URL, '{}/tasks/{}/{}'.format(server_identity(host), task_id, identity)))
     return result, warnings
+
+
+def native_job_snapshots(task, raw, labels, host, ids):
+    """Keep job ownership: re-slicing an already merged task duplicates overlap."""
+    from cvat.apps.dataset_manager.task import TaskAnnotation, JobAnnotation
+    jobs = []
+    all_ids = {kind: set() for kind in ('tracks', 'shapes', 'tags')}
+    rejected_ids = {str(track['id']) for track in raw['tracks']} - ids.keys()
+    for job in TaskAnnotation(task.id).db_jobs:
+        reader = JobAnnotation(job.id)
+        reader.init_from_db()
+        annotations = deepcopy(reader.data)
+        for kind in all_ids:
+            all_ids[kind].update(item['id'] for item in annotations[kind])
+        logical_ids, warnings = tracking_ids(annotations, labels, host, task.id)
+        for rejected in rejected_ids:
+            logical_ids.pop(rejected, None)
+        logical_ids.update({str(track['id']): ids[str(track['id'])] for track in annotations['tracks'] if str(track['id']) in ids})
+        jobs.append({'job_id': job.id, 'start_frame': job.segment.start_frame, 'stop_frame': job.segment.stop_frame,
+                     'annotations': annotations, 'tracking_ids': logical_ids, 'warnings': warnings})
+    # Programmatic/offline exports may supply an IR not stored in this database.
+    # Never attach unrelated database annotations to such a snapshot.
+    if any(not {item.get('id') for item in raw[kind]} <= all_ids[kind] for kind in all_ids):
+        return None
+    return jobs
 
 
 def prepare_export(instance):
@@ -146,10 +178,14 @@ def prepare_export(instance):
                         ids.pop(str(track['id']), None)
                     warnings.append('Overlapping tracks share logical identity {}; identity omitted'.format(logical_id))
         records.append({'task_id': task.id, 'job_id': data.db_instance.id if hasattr(data.db_instance, 'segment') else None,
-                        'server': data._host.rstrip('/'), 'name': task.name, 'subset': task.subset,
+                        'server': server_identity(data._host), 'name': task.name, 'subset': task.subset,
                         'annotations': raw, 'labels': labels, 'frames': frames,
                         'deleted_frames': list(data.deleted_frames), 'tracking_ids': ids,
                         'warnings': warnings, 'meta': data.meta})
+        if not hasattr(data.db_instance, 'segment'):
+            jobs = native_job_snapshots(task, raw, labels, data._host, ids)
+            if jobs is not None:
+                records[-1]['jobs'] = jobs
     archive = {'version': 1, 'exported_at': datetime.now(timezone.utc).isoformat(), 'tasks': records,
                'registry': json.loads(Path(__file__).with_name('annotation_attributes.json').read_text())}
     instance._fr_export = archive
@@ -235,10 +271,12 @@ def read_archive(stream):
     return archive
 
 
-def remap_native(record, target):
+def remap_native(record, target, *, restore_jobs=True):
     """Validate all IDs and frame mappings before assigning the target IR."""
     from cvat.apps.engine.models import AttributeSpec, Label
     from cvat.apps.dataset_manager.bindings import InstanceLabelData
+    if restore_jobs:
+        target._fr_native_jobs = None
     source_labels = {label['id']: label for label in record['labels']}
     label_ids, attr_ids = {}, {}
     for old_id, source in source_labels.items():
@@ -261,9 +299,15 @@ def remap_native(record, target):
             elif spec.mutable != attribute['mutable'] or spec.input_type != attribute['input_type'] or spec.values.splitlines() != list(attribute['values']):
                 raise ValueError('Incompatible attribute definition: ' + attribute['name'])
             attr_ids[attribute['id']] = spec.id
-        if any(t['label_id'] == old_id for t in record['annotations']['tracks']) and 'fr_tracking_id' not in specs:
-            AttributeSpec.objects.get_or_create(label_id=new_id, name='fr_tracking_id', defaults={
-                'mutable': False, 'input_type': 'text', 'default_value': '', 'values': ''})
+    # Relabel destinations include unused labels and labels already on the target.
+    task = target.db_instance.segment.task if hasattr(target.db_instance, 'segment') else target.db_instance
+    for label in task.get_labels():
+        if label.type == 'tag':
+            continue
+        spec, _ = AttributeSpec.objects.get_or_create(label=label, name='fr_tracking_id', defaults={
+            'mutable': False, 'input_type': 'text', 'default_value': '', 'values': ''})
+        if spec.mutable or spec.input_type != 'text' or spec.default_value:
+            raise ValueError('Incompatible reserved tracking identity definition on ' + label.name)
     source_frames = {f['index']: f for f in record['frames']}
     from types import SimpleNamespace
     target_frames = {v['path']: SimpleNamespace(idx=k, width=v['width'], height=v['height']) for k, v in target.frame_info.items()}
@@ -286,6 +330,14 @@ def remap_native(record, target):
 
     if [mapping[i] for i in sorted(mapping)] != sorted(mapping.values()):
         raise ValueError('Source frame order must be preserved during native recreation')
+
+    if restore_jobs and record.get('jobs') and hasattr(target.db_instance, 'segment'):
+        candidates = [job for job in record['jobs']
+                      if {index for index in source_frames if job['start_frame'] <= index <= job['stop_frame']} == set(mapping)]
+        if len(candidates) != 1:
+            raise ValueError('Select an archive with matching native job boundaries')
+        job = candidates[0]
+        return remap_native({**record, 'annotations': job['annotations'], 'tracking_ids': job['tracking_ids']}, target, restore_jobs=False)
 
     def item(value, inherited_label=None):
         result = {k: deepcopy(v) for k, v in value.items() if k not in ('id', 'track_id', 'shapes', 'elements')}
@@ -323,6 +375,21 @@ def remap_native(record, target):
     deleted = (set(target.db_data.deleted_frames) - set(mapping.values())) | {mapping[index] for index in record['deleted_frames'] if index in mapping}
     target.db_data.deleted_frames = sorted(deleted)
     target.db_data.save(update_fields=['deleted_frames'])
+    if restore_jobs and record.get('jobs') and not hasattr(target.db_instance, 'segment'):
+        from cvat.apps.dataset_manager.task import TaskAnnotation
+        destinations = {(job.segment.start_frame, job.segment.stop_frame): job.id for job in TaskAnnotation(task.id).db_jobs}
+        mapped_jobs = []
+        for job in record['jobs']:
+            selected = [mapping[index] for index in mapping if job['start_frame'] <= index <= job['stop_frame']]
+            if not selected:
+                continue
+            bounds = (min(selected), max(selected))
+            mapped_jobs.append((bounds, job))
+        if len(mapped_jobs) == len(destinations) and {bounds for bounds, _ in mapped_jobs} == set(destinations):
+            target._fr_native_jobs = {}
+            for bounds, job in mapped_jobs:
+                job_record = {**record, 'annotations': job['annotations'], 'tracking_ids': job['tracking_ids']}
+                target._fr_native_jobs[destinations[bounds]] = remap_native(job_record, target, restore_jobs=False)
     return restored
 
 
@@ -400,11 +467,9 @@ def import_farming_revolution(src_file, temp_dir, instance_data, load_data_callb
             data = remap_native(candidates[0], target)
             target._annotation_ir = AnnotationIR(target.data.dimension, data)
             instance_data._annotation_irs[target.db_instance.id] = target._annotation_ir
-            if target.db_instance.id not in instance_data.new_tasks:
-                writer = instance_data._task_annotations[target.db_instance.id]
-                writer.db_jobs = writer.db_jobs.all()
-                writer.reset()
-                writer.put(deepcopy(target.data.serialize()))
+            if not hasattr(instance_data, '_fr_native_jobs'):
+                instance_data._fr_native_jobs = {}
+            instance_data._fr_native_jobs[target.db_instance.id] = getattr(target, '_fr_native_jobs', None)
         return
     target_names = {Path(frame['path']).name for frame in instance_data.frame_info.values()}
     candidates = [t for t in archive['tasks'] if target_names <= {Path(f['name']).name for f in t['frames']}]
@@ -434,9 +499,10 @@ def source_revision(instance):
             'data': {'size': task.data.size, 'start': task.data.start_frame, 'stop': task.data.stop_frame,
                      'filter': task.data.frame_filter, 'deleted': task.data.deleted_frames},
             'frames': list(task.data.images.order_by('frame').values('frame', 'path', 'width', 'height')),
-            'video': list(Video.objects.filter(data=task.data).values('path', 'width', 'height'))})
+            'video': list(Video.objects.filter(data=task.data).values('path', 'width', 'height')),
+            'jobs': list(Job.objects.filter(segment__task=task).order_by('id').values('id', 'type', 'segment__start_frame', 'segment__stop_frame'))})
     registry = json.loads(Path(__file__).with_name('annotation_attributes.json').read_text())
-    return sha256(canonical({'tasks': records, 'registry': registry, 'instance_updated': str(instance.updated_date)}).encode()).hexdigest()
+    return sha256(canonical({'archive_revision': 2, 'tasks': records, 'registry': registry, 'instance_updated': str(instance.updated_date)}).encode()).hexdigest()
 
 
 def verify_native_readback(expected, actual, labels):

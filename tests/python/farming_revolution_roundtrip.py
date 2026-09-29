@@ -243,3 +243,131 @@ with patch('cvat.apps.dataset_manager.task.handle_annotations_change'):
         after = TaskAnnotation(target.id); after.init_from_db()
         assert after.data == before.data, 'Whole-task replacement changed retained native IDs or content'
 print('Native IDs survive whole-task replacement for single and multiple jobs')
+
+# The API route is transport metadata, never part of a plant identity.
+from django.test import RequestFactory
+from cvat.apps.engine.serializers import LabelSerializer
+from cvat.apps.dataset_manager.formats.farming_revolution import verify_native_readback
+settings.ALLOWED_HOSTS = ['labeling.example']
+task, raw = fixture('route-independent')
+labels = list(LabelSerializer(task.get_labels(), many=True).data)
+identities = []
+for endpoint in ('/api/tasks/42/dataset/export', '/api/projects/4/dataset/export', '/api/jobs/8/dataset/export'):
+    request = RequestFactory().post(endpoint, HTTP_HOST='labeling.example', secure=True)
+    identities.append(tracking_ids(raw, labels, request.build_absolute_uri(''), task.id)[0])
+assert identities[0] == identities[1] == identities[2]
+assert identities[0] != tracking_ids(raw, labels, 'https://another.example', task.id)[0]
+
+# Unused and pre-existing destination labels must keep identity on later relabel.
+Label.objects.bulk_create([Label(task=task, name='Ignore', type='points', color='#ffffff')])
+with TemporaryDirectory() as directory, patch('cvat.apps.dataset_manager.task.handle_annotations_change'):
+    path = Path(directory) / 'relabel.zip'; stage = Path(directory) / 'stage'; stage.mkdir()
+    with path.open('wb') as stream:
+        export_farming_revolution()(stream, str(stage), TaskData(AnnotationIR('2d', raw), task, host='https://labeling.example'))
+    target, _ = fixture('relabel-target')
+    Label.objects.bulk_create([Label(task=target, name='Other', type='points', color='#ffffff')])
+    with transaction.atomic(), path.open('rb') as stream:
+        TaskAnnotation(target.id).import_annotations(stream, import_farming_revolution())
+    for label in target.get_labels():
+        if label.type != 'tag':
+            assert label.attributespec_set.filter(name='fr_tracking_id', mutable=False, input_type='text').count() == 1
+    reader = TaskAnnotation(target.id); reader.init_from_db()
+    previous_track = deepcopy(reader.data['tracks'][0])
+    names = {a.id: a.name for label in target.get_labels() for a in label.attributespec_set.all()}
+    logical = next(a['value'] for a in previous_track['attributes'] if names[a['spec_id']] == 'fr_tracking_id')
+    dest = target.get_labels().get(name='Ignore')
+    specs = {spec.name: spec.id for spec in dest.attributespec_set.all()}
+    # This is CVAT core's same-name compatible-attribute relabel contract.
+    previous_track['label_id'] = dest.id
+    previous_track['attributes'] = [{'spec_id': specs[names[a['spec_id']]], 'value': a['value']}
+        for a in previous_track['attributes'] if names[a['spec_id']] in specs]
+    for shape in previous_track['shapes']:
+        shape['attributes'] = []
+    relabeled = {'tracks': [previous_track], 'shapes': [], 'tags': []}
+    updated_labels = list(LabelSerializer(target.get_labels(), many=True).data)
+    assert tracking_ids(relabeled, updated_labels, 'https://labeling.example/api/tasks/999/dataset/export', target.id)[0][str(previous_track['id'])] == logical
+print('Route-independent identity and unused relabel destinations passed')
+
+
+def strip_server_ids(value):
+    if isinstance(value, dict):
+        return {k: strip_server_ids(v) for k, v in value.items() if k != 'id'}
+    if isinstance(value, list):
+        return [strip_server_ids(v) for v in value]
+    return value
+
+
+def add_segments(task, overlap):
+    Task.objects.filter(pk=task.id).update(overlap=overlap)
+    task.refresh_from_db()
+    Segment.objects.filter(task=task).update(stop_frame=2 if overlap else 1)
+    segment = Segment.objects.bulk_create([Segment(task=task, start_frame=2, stop_frame=3)])[0]
+    Job.objects.bulk_create([Job(segment=segment)])
+
+
+for overlap in (0, 1):
+    with TemporaryDirectory() as directory, patch('cvat.apps.dataset_manager.task.handle_annotations_change'):
+        source, raw = fixture('segmented-source')
+        add_segments(source, overlap)
+        raw['tracks'][0]['shapes'] = [raw['tracks'][0]['shapes'][0], raw['tracks'][0]['shapes'][-1]]
+        with transaction.atomic():
+            TaskAnnotation(source.id).put(strip_server_ids(raw))
+        source_reader = TaskAnnotation(source.id); source_reader.init_from_db()
+        path = Path(directory) / 'segments.zip'; stage = Path(directory) / 'stage'; stage.mkdir()
+        with path.open('wb') as stream:
+            export_farming_revolution()(stream, str(stage), TaskData(source_reader.ir_data, source, host='https://labeling.example'))
+        with path.open('rb') as stream:
+            archived = read_archive(stream)['tasks'][0]
+        assert len(archived['jobs']) == 2
+        target, _ = fixture('segmented-target')
+        add_segments(target, overlap)
+        with transaction.atomic(), path.open('rb') as stream:
+            TaskAnnotation(target.id).import_annotations(stream, import_farming_revolution())
+        # Re-export preserves each job's own observations and logical identities.
+        reader = TaskAnnotation(target.id); reader.init_from_db()
+        again = Path(directory) / 'again.zip'; stage2 = Path(directory) / 'stage2'; stage2.mkdir()
+        with again.open('wb') as stream:
+            export_farming_revolution()(stream, str(stage2), TaskData(reader.ir_data, target, host='https://labeling.example'))
+        with again.open('rb') as stream:
+            restored = read_archive(stream)['tasks'][0]
+        assert len(restored['jobs']) == 2
+        for before, after in zip(archived['jobs'], restored['jobs']):
+            for kind in ('tracks', 'shapes', 'tags'):
+                assert len(before['annotations'][kind]) == len(after['annotations'][kind])
+            assert sorted(before['tracking_ids'].values()) == sorted(after['tracking_ids'].values())
+            assert [[(s['frame'], s['outside'], list(s['points'])) for s in t['shapes']] for t in before['annotations']['tracks']] == [
+                [(s['frame'], s['outside'], list(s['points'])) for s in t['shapes']] for t in after['annotations']['tracks']]
+        # Importing the task archive into one matching job must not bring in
+        # the other job's overlapping fragment.
+        target_job = Job.objects.filter(segment__task=target).order_by('id').last()
+        with transaction.atomic(), path.open('rb') as stream:
+            JobAnnotation(target_job.id).import_annotations(stream, import_farming_revolution())
+        job_reader = JobAnnotation(target_job.id); job_reader.init_from_db()
+        assert len(job_reader.data['tracks']) == len(archived['jobs'][-1]['annotations']['tracks'])
+        # Existing-project imports use the same verified job restoration.
+        project = Project.objects.bulk_create([Project(name='segmented-project')])[0]
+        Label.objects.filter(task=target).update(project=project, task=None)
+        Task.objects.filter(pk=target.id).update(project=project, name=source.name)
+        with transaction.atomic(), path.open('rb') as stream:
+            ProjectAnnotation(project.id).import_dataset(stream, import_farming_revolution())
+        reader = TaskAnnotation(target.id); reader.init_from_db()
+        for job in Job.objects.filter(segment__task=target).order_by('id'):
+            job_reader = JobAnnotation(job.id); job_reader.init_from_db()
+            assert len(job_reader.data['tracks']) == 1
+        # Segment membership participates in cache invalidation.
+        before_revision = source_revision(target)
+        Segment.objects.filter(task=target, start_frame=2).update(stop_frame=2)
+        assert source_revision(target) != before_revision
+        Segment.objects.filter(task=target, start_frame=2).update(stop_frame=3)
+        # A verification failure in any job rolls the whole native import back.
+        previous = deepcopy(reader.data)
+        try:
+            with transaction.atomic(), patch('cvat.apps.dataset_manager.formats.farming_revolution.verify_native_readback', side_effect=ValueError('forced readback failure')), path.open('rb') as stream:
+                TaskAnnotation(target.id).import_annotations(stream, import_farming_revolution())
+        except ValueError as error:
+            assert 'forced readback' in str(error)
+        else:
+            raise AssertionError('Readback verification was skipped')
+        reader = TaskAnnotation(target.id); reader.init_from_db()
+        assert reader.data == previous
+print('Native job ownership, overlap round trips, and transactional rollback passed')

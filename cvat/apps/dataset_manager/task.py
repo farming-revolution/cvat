@@ -931,6 +931,26 @@ class TaskAnnotation:
     def create(self, data):
         self._patch_data(data, PatchAction.CREATE)
 
+    def restore_native(self, data, jobs=None):
+        """Restore exact job snapshots when segment boundaries match the archive."""
+        from .formats.farming_revolution import verify_native_readback
+        self.db_jobs = self.db_jobs.all()
+        if jobs is None:
+            self.reset()
+            self.put(deepcopy(data))
+            readback = TaskAnnotation(self.db_task.id)
+            readback.init_from_db()
+            verify_native_readback(data, readback.data, self.db_task.get_labels())
+        else:
+            if set(jobs) != {job.id for job in self.db_jobs}:
+                raise ValueError('Native archive does not cover every target job')
+            for job_id, expected in jobs.items():
+                put_job_data(job_id, deepcopy(expected))
+                readback = JobAnnotation(job_id)
+                readback.init_from_db()
+                verify_native_readback(expected, readback.data, self.db_task.get_labels())
+        self.init_from_db()
+
     def _preprocess_input_annotations_for_gt_pool_task(
         self, data: AnnotationIR | dict, *, action: PatchAction | None
     ) -> AnnotationIR:
@@ -1092,16 +1112,11 @@ class TaskAnnotation:
                 raise not_found
 
         native_import = importer.DISPLAY_NAME == 'Farming Revolution 1.0'
-        if native_import:
-            # delete() evaluated the prefetched job/label queryset before definitions were added.
-            self.db_jobs = self.db_jobs.all()
         expected = task_data.data.serialize()
-        self.create(expected)
         if native_import:
-            from .formats.farming_revolution import verify_native_readback
-            readback = TaskAnnotation(self.db_task.id)
-            readback.init_from_db()
-            verify_native_readback(expected, readback.data, self.db_task.get_labels())
+            self.restore_native(expected, getattr(task_data, '_fr_native_jobs', None))
+        else:
+            self.create(expected)
 
     @property
     def data(self):
