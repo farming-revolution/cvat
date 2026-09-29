@@ -157,7 +157,7 @@ function AttributeAnnotationSidebar(props: StateToProps & DispatchToProps): JSX.
     const filteredStates = states.filter((state) => !state.outside && !state.hidden && state.zOrder <= curZLayer);
     const [labelAttrMap, setLabelAttrMap] = useState(
         labels.reduce((acc, label): LabelAttrMap => {
-            acc[label.id] = label.attributes.length ? label.attributes[0] : null;
+            acc[label.id] = label.visibleAttributes.length ? label.visibleAttributes[0] : null;
             return acc;
         }, {}),
     );
@@ -220,7 +220,7 @@ function AttributeAnnotationSidebar(props: StateToProps & DispatchToProps): JSX.
     const nextAttribute = (step: number): void => {
         if (activeObjectState) {
             const { label } = activeObjectState;
-            const { attributes } = label;
+            const attributes = label.visibleAttributes;
             if (attributes.length) {
                 const index = attributes.indexOf(activeAttribute);
                 let nextIndex = index + step;
@@ -351,9 +351,9 @@ function AttributeAnnotationSidebar(props: StateToProps & DispatchToProps): JSX.
                 {activeAttribute ? (
                     <>
                         <AttributeSwitcher
-                            currentAttribute={activeAttribute.name}
-                            currentIndex={activeObjectState.label.attributes.indexOf(activeAttribute)}
-                            attributesCount={activeObjectState.label.attributes.length}
+                            currentAttribute={activeAttribute.displayName}
+                            currentIndex={activeObjectState.label.visibleAttributes.indexOf(activeAttribute)}
+                            attributesCount={activeObjectState.label.visibleAttributes.length}
                             normalizedKeyMap={normalizedKeyMap}
                             nextAttribute={nextAttribute}
                         />

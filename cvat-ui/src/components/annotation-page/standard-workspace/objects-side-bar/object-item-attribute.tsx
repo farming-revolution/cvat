@@ -18,6 +18,7 @@ interface Props {
     readonly: boolean;
     attrInputType: string;
     attrValues: string[];
+    attrValueLabels: string[];
     attrValue: string;
     attrName: string;
     attrID: number;
@@ -30,6 +31,7 @@ function attrIsTheSame(prevProps: Props, nextProps: Props): boolean {
         nextProps.attrID === prevProps.attrID &&
         nextProps.attrValue === prevProps.attrValue &&
         nextProps.attrName === prevProps.attrName &&
+        nextProps.attrValueLabels.join('\n') === prevProps.attrValueLabels.join('\n') &&
         nextProps.attrInputType === prevProps.attrInputType &&
         nextProps.attrValues
             .map((value: string, id: number): boolean => prevProps.attrValues[id] === value)
@@ -39,7 +41,7 @@ function attrIsTheSame(prevProps: Props, nextProps: Props): boolean {
 
 function ItemAttributeComponent(props: Props): JSX.Element {
     const {
-        attrInputType, attrValues, attrValue,
+        attrInputType, attrValues, attrValueLabels, attrValue,
         attrName, attrID, readonly, changeAttribute,
     } = props;
 
@@ -109,9 +111,10 @@ function ItemAttributeComponent(props: Props): JSX.Element {
                         }}
                     >
                         {attrValues.map(
-                            (value: string): JSX.Element => (
+                            (value: string, index: number): JSX.Element => (
                                 <Radio key={value} value={value}>
-                                    {value === config.UNDEFINED_ATTRIBUTE_VALUE ? config.NO_BREAK_SPACE : value}
+                                    {value === config.UNDEFINED_ATTRIBUTE_VALUE ?
+                                        config.NO_BREAK_SPACE : attrValueLabels[index]}
                                 </Radio>
                             ),
                         )}
@@ -138,9 +141,10 @@ function ItemAttributeComponent(props: Props): JSX.Element {
                         className='cvat-object-item-select-attribute'
                     >
                         {attrValues.map(
-                            (value: string): JSX.Element => (
+                            (value: string, index: number): JSX.Element => (
                                 <Select.Option key={value} value={value}>
-                                    {value === config.UNDEFINED_ATTRIBUTE_VALUE ? config.NO_BREAK_SPACE : value}
+                                    {value === config.UNDEFINED_ATTRIBUTE_VALUE ?
+                                        config.NO_BREAK_SPACE : attrValueLabels[index]}
                                 </Select.Option>
                             ),
                         )}

@@ -74,7 +74,8 @@ function ItemAttributesComponent(props: Props): JSX.Element | null {
     const withScore = isConsensus;
     const withVotes = isConsensus;
 
-    const hasDetails = attributes.length > 0 || sizeParams !== null;
+    const visibleAttributes = attributes.filter((attribute) => !attribute.internal);
+    const hasDetails = visibleAttributes.length > 0 || sizeParams !== null;
 
     const baseTooltipAlign = {
         points: ['bl', 'tl'],
@@ -160,7 +161,7 @@ function ItemAttributesComponent(props: Props): JSX.Element | null {
                                 ))}
                             </Row>
                         ),
-                        ...attributes.map(
+                        ...visibleAttributes.map(
                             (attribute: any): JSX.Element => (
                                 <Row
                                     key={attribute.id}
@@ -172,9 +173,10 @@ function ItemAttributesComponent(props: Props): JSX.Element | null {
                                         readonly={readonly}
                                         attrValue={values[attribute.id]}
                                         attrInputType={attribute.inputType}
-                                        attrName={attribute.name}
+                                        attrName={attribute.displayName}
                                         attrID={attribute.id}
                                         attrValues={attribute.values}
+                                        attrValueLabels={attribute.values.map((value) => attribute.displayValue(value))}
                                         changeAttribute={changeAttribute}
                                     />
                                 </Row>

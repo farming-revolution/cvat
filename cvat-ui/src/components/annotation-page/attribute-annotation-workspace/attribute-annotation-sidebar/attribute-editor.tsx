@@ -25,6 +25,7 @@ import { shallowEqual } from 'utils/redux';
 interface InputElementParameters {
     clientID: number;
     attrID: number;
+    displayValue(value: string): string;
     inputType: string;
     values: string[];
     currentValue: string;
@@ -49,7 +50,7 @@ registerComponentShortcuts(componentShortcuts);
 
 function renderInputElement(parameters: InputElementParameters): JSX.Element {
     const {
-        inputType, attrID, clientID, values, currentValue, onChange,
+        inputType, attrID, clientID, values, currentValue, onChange, displayValue,
     } = parameters;
 
     const ref = useRef<TextAreaRef>(null);
@@ -103,7 +104,8 @@ function renderInputElement(parameters: InputElementParameters): JSX.Element {
                     {values.map(
                         (value: string): JSX.Element => (
                             <Select.Option key={value} value={value}>
-                                {value === config.UNDEFINED_ATTRIBUTE_VALUE ? config.NO_BREAK_SPACE : value}
+                                {value === config.UNDEFINED_ATTRIBUTE_VALUE ?
+                                    config.NO_BREAK_SPACE : displayValue(value)}
                             </Select.Option>
                         ),
                     )}
@@ -123,7 +125,8 @@ function renderInputElement(parameters: InputElementParameters): JSX.Element {
                     {values.map(
                         (value: string): JSX.Element => (
                             <Radio style={{ display: 'block' }} key={value} value={value}>
-                                {value === config.UNDEFINED_ATTRIBUTE_VALUE ? config.NO_BREAK_SPACE : value}
+                                {value === config.UNDEFINED_ATTRIBUTE_VALUE ?
+                                    config.NO_BREAK_SPACE : displayValue(value)}
                             </Radio>
                         ),
                     )}
@@ -205,13 +208,16 @@ function renderInputElement(parameters: InputElementParameters): JSX.Element {
 }
 
 interface ListProps {
+    displayValue(value: string): string;
     inputType: string;
     values: string[];
     onChange(value: string): void;
 }
 
 function AttrValuesList(props: ListProps): JSX.Element | null {
-    const { inputType, values, onChange } = props;
+    const {
+        inputType, values, onChange, displayValue,
+    } = props;
     const { keyMap, normalizedKeyMap } = useSelector((state: CombinedState) => ({
         keyMap: state.shortcuts.keyMap,
         normalizedKeyMap: state.shortcuts.normalizedKeyMap,
@@ -245,8 +251,8 @@ function AttrValuesList(props: ListProps): JSX.Element | null {
                 updatedComponentShortcuts[key] = {
                     ...updatedComponentShortcuts[key],
                     nonActive: false,
-                    name: `Assign attribute value ${value}`,
-                    description: `Change current value for the attribute to ${value}`,
+                    name: `Assign attribute value ${displayValue(value)}`,
+                    description: `Change current value for the attribute to ${displayValue(value)}`,
                 };
             });
 
@@ -318,7 +324,7 @@ function AttrValuesList(props: ListProps): JSX.Element | null {
                             return (
                                 <div key={value}>
                                     <Text strong>{`${normalizedKeyMap[key]}: `}</Text>
-                                    <Text>{` ${value}`}</Text>
+                                    <Text>{` ${displayValue(value)}`}</Text>
                                 </div>
                             );
                         }
@@ -367,11 +373,17 @@ function AttributeEditor(props: Props): JSX.Element {
 
     return (
         <div className='attribute-annotations-sidebar-attribute-editor'>
-            <AttrValuesList values={values} inputType={inputType} onChange={onChange} />
+            <AttrValuesList
+                values={values}
+                inputType={inputType}
+                onChange={onChange}
+                displayValue={(value) => attribute.displayValue(value)}
+            />
             <hr />
             {renderInputElement({
                 clientID,
                 attrID,
+                displayValue: (value) => attribute.displayValue(value),
                 inputType,
                 currentValue,
                 values,

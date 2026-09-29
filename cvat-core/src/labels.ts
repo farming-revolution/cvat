@@ -9,6 +9,7 @@ import {
 } from './server-response-types';
 import { ShapeType, AttributeType, LabelType } from './enums';
 import { ArgumentError } from './exceptions';
+import { isInternalAttribute, attributeDisplayName, attributeDisplayValue } from './attribute-display';
 
 export class Attribute {
     public id?: number;
@@ -67,6 +68,18 @@ export class Attribute {
                 },
             }),
         );
+    }
+
+    get internal(): boolean {
+        return isInternalAttribute(this.name);
+    }
+
+    get displayName(): string {
+        return attributeDisplayName(this.name);
+    }
+
+    displayValue(value: string): string {
+        return attributeDisplayValue(this.name, value);
     }
 
     toJSON(): SerializedAttribute {
@@ -204,6 +217,11 @@ export class Label {
                 },
             }),
         );
+    }
+
+    // Annotation controls use this view; serialization retains every attribute.
+    get visibleAttributes(): Attribute[] {
+        return this.attributes.filter((attribute) => !attribute.internal);
     }
 
     toJSON(): SerializedLabel {

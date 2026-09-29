@@ -2706,14 +2706,16 @@ export class CanvasViewImpl implements CanvasView, Listener {
                     this.addText(state);
                 }
             } else {
-                const attrNames = Object.fromEntries(state.label.attributes.map((attr) => [attr.id, attr.name]));
+                const attrSpecs = Object.fromEntries(state.label.visibleAttributes.map((attr) => [attr.id, attr]));
                 // check if there are updates in attributes
                 for (const attrID of Object.keys(state.attributes)) {
                     if (state.attributes[attrID] !== drawnState.attributes[+attrID]) {
                         if (text) {
                             const [span] = text.node.querySelectorAll<SVGTSpanElement>(`[attrID="${attrID}"]`);
-                            if (span && span.textContent) {
-                                span.textContent = `${attrNames[attrID]}: ${state.attributes[attrID]}`;
+                            if (span && span.textContent && attrSpecs[attrID]) {
+                                const spec = attrSpecs[attrID];
+                                const value = spec.displayValue(state.attributes[attrID]);
+                                span.textContent = `${spec.displayName}: ${value}`;
                             }
                         }
                     }
@@ -3307,7 +3309,7 @@ export class CanvasViewImpl implements CanvasView, Listener {
         const withScore = isConsensus && !options.isSkeletonElement;
         const withVotes = isConsensus && !options.isSkeletonElement;
 
-        const attrNames = Object.fromEntries(state.label.attributes.map((attr) => [attr.id, attr.name]));
+        const attrSpecs = Object.fromEntries(state.label.visibleAttributes.map((attr) => [attr.id, attr]));
         if (state.shapeType === 'skeleton') {
             state.elements.forEach((element: any) => {
                 if (!(element.clientID in this.svgTexts)) {
@@ -3373,10 +3375,11 @@ export class CanvasViewImpl implements CanvasView, Listener {
                         .addClass('cvat_canvas_text_score');
                 }
                 if (withAttr) {
-                    Object.keys(attributes).forEach((attrID: string, idx: number) => {
+                    const visibleIDs = Object.keys(attributes).filter((attrID) => attrID in attrSpecs);
+                    visibleIDs.forEach((attrID: string, idx: number) => {
                         const values = `${attributes[attrID] === undefinedAttrValue ?
-                            '' : attributes[attrID]}`.split('\n');
-                        const parent = block.tspan(`${attrNames[attrID]}: `)
+                            '' : attrSpecs[attrID].displayValue(attributes[attrID])}`.split('\n');
+                        const parent = block.tspan(`${attrSpecs[attrID].displayName}: `)
                             .attr({ attrID, dy: idx === 0 ? '1.25em' : '1em', x: 0 })
                             .addClass('cvat_canvas_text_attribute');
                         values.forEach((attrLine: string, index: number) => {

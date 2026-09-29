@@ -22,6 +22,7 @@ RUN DISABLE_HUSKY=1 yarn install --immutable
 # Build source code
 COPY cvat-data/ /tmp/cvat-data/
 COPY cvat-core/ /tmp/cvat-core/
+COPY cvat/apps/dataset_manager/formats/annotation_attributes.json /tmp/cvat/apps/dataset_manager/formats/annotation_attributes.json
 COPY cvat-canvas3d/ /tmp/cvat-canvas3d/
 COPY cvat-canvas/ /tmp/cvat-canvas/
 COPY cvat-ui/ /tmp/cvat-ui/

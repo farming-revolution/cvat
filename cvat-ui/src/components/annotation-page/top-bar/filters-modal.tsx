@@ -54,17 +54,17 @@ const getAttributesSubfields = (labels: Label[]): Record<string, any> => {
         };
 
         const labelSubfields = subfields[adjustedLabelName].subfields;
-        label.attributes.forEach((attr: any): void => {
+        label.visibleAttributes.forEach((attr: any): void => {
             const adjustedAttrName = adjustName(attr.name);
             labelSubfields[adjustedAttrName] = {
-                label: attr.name,
+                label: attr.displayName,
                 type: getConvertedInputType(attr.inputType),
             };
             if (labelSubfields[adjustedAttrName].type === 'select') {
                 labelSubfields[adjustedAttrName] = {
                     ...labelSubfields[adjustedAttrName],
                     fieldSettings: {
-                        listValues: attr.values,
+                        listValues: attr.values.map((value: string) => ({ value, title: attr.displayValue(value) })),
                     },
                 };
             }
