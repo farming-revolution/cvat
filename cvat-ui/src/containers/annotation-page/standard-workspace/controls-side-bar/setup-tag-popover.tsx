@@ -13,6 +13,7 @@ import { Canvas } from 'cvat-canvas-wrapper';
 import {
     getCore, Label, ObjectState, ObjectType,
 } from 'cvat-core-wrapper';
+import { frameTagChoices } from 'utils/farming-frame-tags';
 
 const cvat = getCore();
 interface DispatchToProps {
@@ -82,9 +83,7 @@ class DrawShapePopoverContainer extends React.PureComponent<Props, State> {
 
         const { states } = props;
         const frameTags = states.filter((objectState: any): boolean => objectState.objectType === ObjectType.TAG);
-        this.satisfiedLabels = props.labels.filter((label: Label) => (
-            ['any', ObjectType.TAG].includes(label.type)
-        ));
+        this.satisfiedLabels = frameTagChoices(props.labels);
 
         const defaultLabelID = this.satisfiedLabels.length ? this.satisfiedLabels[0].id as number : null;
         this.state = {

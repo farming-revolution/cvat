@@ -3,7 +3,9 @@
 //
 // SPDX-License-Identifier: MIT
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, {
+    useState, useEffect, useCallback, useRef,
+} from 'react';
 import { connect } from 'react-redux';
 import { Action } from 'redux';
 import { ThunkDispatch } from 'redux-thunk';
@@ -18,22 +20,24 @@ import Text from 'antd/lib/typography/Text';
 
 import {
     createAnnotationsAsync,
+    updateAnnotationsAsync,
     removeObject as removeObjectAction,
     changeFrameAsync,
     rememberObject,
 } from 'actions/annotation-actions';
 import {
-    getCore, Label, LabelType, ObjectType, ObjectState,
+    getCore, Label, ObjectType, ObjectState,
     Job, FrameData,
 } from 'cvat-core-wrapper';
 import { CombinedState } from 'reducers';
-import { filterApplicableForType } from 'utils/filter-applicable-labels';
+import { frameTagChoices, supervisionLabel } from 'utils/farming-frame-tags';
 import LabelSelector from 'components/label-selector/label-selector';
 import isAbleToChangeFrame from 'utils/is-able-to-change-frame';
 import GlobalHotKeys, { KeyMap } from 'utils/mousetrap-react';
 import { ShortcutScope } from 'utils/enums';
 import { registerComponentShortcuts } from 'actions/shortcuts-actions';
 import { subKeyMap } from 'utils/component-subkeymap';
+import FrameSupervision from './frame-supervision';
 import ShortcutsSelect from './shortcuts-select';
 
 const cvat = getCore();
@@ -51,7 +55,8 @@ interface StateToProps {
 
 interface DispatchToProps {
     removeObject(objectState: ObjectState): void;
-    createAnnotations(objectStates: ObjectState[]): void;
+    createAnnotations(objectStates: ObjectState[]): Promise<void>;
+    updateAnnotation(objectState: ObjectState): Promise<void>;
     changeFrame(frame: number, fillBuffer?: boolean, frameStep?: number): void;
     onRememberObject(labelID: number): void;
 }
@@ -99,8 +104,11 @@ function mapDispatchToProps(dispatch: ThunkDispatch<CombinedState, {}, Action>):
         changeFrame(frame: number, fillBuffer?: boolean, frameStep?: number): void {
             dispatch(changeFrameAsync(frame, fillBuffer, frameStep));
         },
-        createAnnotations(objectStates: ObjectState[]): void {
-            dispatch(createAnnotationsAsync(objectStates));
+        createAnnotations(objectStates: ObjectState[]): Promise<void> {
+            return dispatch(createAnnotationsAsync(objectStates));
+        },
+        updateAnnotation(objectState: ObjectState): Promise<void> {
+            return dispatch(updateAnnotationsAsync([objectState]));
         },
         removeObject(objectState: ObjectState): void {
             dispatch(removeObjectAction(objectState, false));
@@ -121,6 +129,7 @@ function TagAnnotationSidebar(props: StateToProps & DispatchToProps): JSX.Elemen
         frameNumber,
         onRememberObject,
         createAnnotations,
+        updateAnnotation,
         keyMap,
         frameData,
         showDeletedFrames,
@@ -132,16 +141,17 @@ function TagAnnotationSidebar(props: StateToProps & DispatchToProps): JSX.Elemen
         }
     };
 
-    const [applicableLabels, setApplicableLabels] = useState<Label[]>(
-        filterApplicableForType(LabelType.TAG, labels),
-    );
-    const controlsDisabled = !applicableLabels.length || frameData.deleted;
+    const applicableLabels = frameTagChoices(labels);
+    const frameSupervisionLabel = supervisionLabel(labels);
+    const controlsDisabled = (!applicableLabels.length && !frameSupervisionLabel) || frameData.deleted;
     const defaultLabelID = applicableLabels.length ? applicableLabels[0].id as number : null;
 
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-    const [frameTags, setFrameTags] = useState([] as any[]);
+    const [frameTags, setFrameTags] = useState<ObjectState[]>([]);
     const [selectedLabelID, setSelectedLabelID] = useState<number | null>(defaultLabelID);
     const [skipFrame, setSkipFrame] = useState(false);
+    const [supervisionBusy, setSupervisionBusy] = useState(false);
+    const supervisionPending = useRef(false);
 
     useEffect(() => {
         if (document.activeElement instanceof HTMLElement) {
@@ -150,7 +160,9 @@ function TagAnnotationSidebar(props: StateToProps & DispatchToProps): JSX.Elemen
     }, []);
 
     useEffect(() => {
-        setApplicableLabels(filterApplicableForType(LabelType.TAG, labels));
+        if (!applicableLabels.some((label) => label.id === selectedLabelID)) {
+            setSelectedLabelID(applicableLabels[0]?.id ?? null);
+        }
     }, [labels]);
 
     useEffect(() => {
@@ -213,7 +225,8 @@ function TagAnnotationSidebar(props: StateToProps & DispatchToProps): JSX.Elemen
     };
 
     const onAddTag = useCallback((labelID: number): void => {
-        if (frameTags.every((objectState: ObjectState): boolean => objectState.label.id !== labelID)) {
+        if (applicableLabels.some((label) => label.id === labelID) &&
+            frameTags.every((objectState: ObjectState): boolean => objectState.label.id !== labelID)) {
             onRememberObject(labelID);
 
             createAnnotations([
@@ -228,7 +241,35 @@ function TagAnnotationSidebar(props: StateToProps & DispatchToProps): JSX.Elemen
                 onChangeFrame();
             }
         }
-    }, [frameTags, skipFrame]);
+    }, [frameTags, skipFrame, applicableLabels, labels, frameNumber]);
+
+    const onChangeSupervision = async (name: string, value: string): Promise<void> => {
+        if (!frameSupervisionLabel || supervisionPending.current || frameData.deleted) return;
+        const attribute = frameSupervisionLabel.attributes.find((item) => item.name === name);
+        const tags = frameTags.filter((state) => state.label.id === frameSupervisionLabel.id &&
+            state.frame === frameNumber);
+        if (!attribute || !attribute.values.includes(value) || tags.length > 1 || tags[0]?.lock ||
+            tags[0]?.isGroundTruth) return;
+        if (!tags.length && value === 'inherit') return;
+        supervisionPending.current = true;
+        setSupervisionBusy(true);
+        try {
+            if (tags.length) {
+                tags[0].attributes = { [attribute.id as number]: value };
+                await updateAnnotation(tags[0]);
+            } else {
+                await createAnnotations([new cvat.classes.ObjectState({
+                    objectType: ObjectType.TAG,
+                    label: frameSupervisionLabel,
+                    frame: frameNumber,
+                    attributes: { [attribute.id as number]: value },
+                })]);
+            }
+        } finally {
+            supervisionPending.current = false;
+            setSupervisionBusy(false);
+        }
+    };
 
     const onShortcutPress = useCallback((labelID: number) => {
         if (frameTags.some((tag: ObjectState) => tag.label.id === labelID)) {
@@ -277,52 +318,65 @@ function TagAnnotationSidebar(props: StateToProps & DispatchToProps): JSX.Elemen
                 >
                     {sidebarCollapsed ? <MenuFoldOutlined title='Show' /> : <MenuUnfoldOutlined title='Hide' />}
                 </span>
-                <Row justify='start' className='cvat-tag-annotation-sidebar-tag-label'>
-                    <Col>
-                        <Text strong>Tag label:</Text>
-                    </Col>
-                </Row>
-                <Row justify='start' className='cvat-tag-annotation-sidebar-label-select'>
-                    <Col>
-                        <LabelSelector
-                            labels={applicableLabels}
-                            value={selectedLabelID}
-                            onChange={onChangeLabel}
-                            onEnterPress={onAddTag}
-                        />
-                        <Button
-                            type='primary'
-                            className='cvat-add-tag-button'
-                            onClick={() => onAddTag(selectedLabelID as number)}
-                            icon={<PlusOutlined />}
-                        />
-                    </Col>
-                </Row>
-                <Row className='cvat-tag-annotation-sidebar-checkbox-skip-frame'>
-                    <Col>
-                        <Checkbox
-                            checked={skipFrame}
-                            onChange={(event: CheckboxChangeEvent): void => {
-                                setSkipFrame(event.target.checked);
-                            }}
-                        >
-                            Automatically go to the next frame
-                        </Checkbox>
-                    </Col>
-                </Row>
-                <Row>
-                    <Col>
-                        <ShortcutsSelect labels={applicableLabels} onShortcutPress={onShortcutPress} />
-                    </Col>
-                </Row>
-                <Row justify='center' className='cvat-tag-annotation-sidebar-shortcut-help'>
-                    <Col>
-                        <Text>
-                            Use configured shortcuts to add a new tag.
-                            If a tag with such label is already exists on the frame, it will be removed.
-                        </Text>
-                    </Col>
-                </Row>
+                {frameSupervisionLabel && (
+                    <FrameSupervision
+                        label={frameSupervisionLabel}
+                        tags={frameTags.filter((state) => state.label.id === frameSupervisionLabel.id &&
+                            state.frame === frameNumber)}
+                        disabled={frameData.deleted || supervisionBusy}
+                        onChange={onChangeSupervision}
+                    />
+                )}
+                {applicableLabels.length > 0 && (
+                    <>
+                        <Row justify='start' className='cvat-tag-annotation-sidebar-tag-label'>
+                            <Col>
+                                <Text strong>Tag label:</Text>
+                            </Col>
+                        </Row>
+                        <Row justify='start' className='cvat-tag-annotation-sidebar-label-select'>
+                            <Col>
+                                <LabelSelector
+                                    labels={applicableLabels}
+                                    value={selectedLabelID}
+                                    onChange={onChangeLabel}
+                                    onEnterPress={onAddTag}
+                                />
+                                <Button
+                                    type='primary'
+                                    className='cvat-add-tag-button'
+                                    onClick={() => onAddTag(selectedLabelID as number)}
+                                    icon={<PlusOutlined />}
+                                />
+                            </Col>
+                        </Row>
+                        <Row className='cvat-tag-annotation-sidebar-checkbox-skip-frame'>
+                            <Col>
+                                <Checkbox
+                                    checked={skipFrame}
+                                    onChange={(event: CheckboxChangeEvent): void => {
+                                        setSkipFrame(event.target.checked);
+                                    }}
+                                >
+                                    Automatically go to the next frame
+                                </Checkbox>
+                            </Col>
+                        </Row>
+                        <Row>
+                            <Col>
+                                <ShortcutsSelect labels={applicableLabels} onShortcutPress={onShortcutPress} />
+                            </Col>
+                        </Row>
+                        <Row justify='center' className='cvat-tag-annotation-sidebar-shortcut-help'>
+                            <Col>
+                                <Text>
+                                    Use configured shortcuts to add a new tag.
+                                    If a tag with such label is already exists on the frame, it will be removed.
+                                </Text>
+                            </Col>
+                        </Row>
+                    </>
+                )}
             </Layout.Sider>
         </>
     );

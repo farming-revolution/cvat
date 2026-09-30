@@ -100,3 +100,26 @@
 .cvat-canvas-annotation-frame-tags {
     margin-bottom: $grid-unit-size;
 }
+
+.cvat-frame-supervision {
+    display: flex;
+    flex-direction: column;
+    gap: $grid-unit-size;
+    padding: $grid-unit-size;
+    background: $background-color-1;
+
+    &-description {
+        font-size: 12px;
+    }
+
+    &-field {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: $grid-unit-size;
+
+        .ant-select {
+            width: $grid-unit-size * 15;
+        }
+    }
+}

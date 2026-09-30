@@ -13,20 +13,26 @@ import { shallowEqual } from 'utils/redux';
 import {
     removeObject as removeObjectAction,
 } from 'actions/annotation-actions';
-import { CombinedState } from 'reducers';
+import { CombinedState, Workspace } from 'reducers';
+import { supervisionLabel } from 'utils/farming-frame-tags';
 import { AnnotationConflict, ObjectState, ObjectType } from 'cvat-core-wrapper';
 import { filterAnnotations } from 'utils/filter-annotations';
 
 function FrameTags(): JSX.Element {
     const dispatch = useDispatch();
 
-    const { highlightedConflict, states, workspace } = useSelector((state: CombinedState) => ({
+    const {
+        highlightedConflict, states, workspace, labels,
+    } = useSelector((state: CombinedState) => ({
         highlightedConflict: state.annotation.annotations.highlightedConflict,
         states: state.annotation.annotations.states,
         workspace: state.annotation.workspace,
+        labels: state.annotation.job.labels,
     }), shallowEqual);
 
     const [frameTags, setFrameTags] = useState<ObjectState[]>([]);
+    const supervisionID = workspace === Workspace.TAGS ? supervisionLabel(labels)?.id : null;
+    const visibleTags = frameTags.filter((tag) => tag.label.id !== supervisionID);
 
     const onRemoveState = (objectState: ObjectState): void => {
         dispatch(removeObjectAction(objectState, false));
@@ -47,7 +53,7 @@ function FrameTags(): JSX.Element {
     return (
         <>
             <div className='cvat-canvas-annotation-frame-tags'>
-                {frameTags
+                {visibleTags
                     .filter((tag: ObjectState) => !tag.isGroundTruth)
                     .map((tag: ObjectState) => (
                         <Tag
@@ -64,7 +70,7 @@ function FrameTags(): JSX.Element {
                     ))}
             </div>
             <div className='cvat-canvas-ground-truth-frame-tags'>
-                {frameTags
+                {visibleTags
                     .filter((tag: ObjectState) => tag.isGroundTruth)
                     .map((tag: ObjectState) => (
                         <Tag
