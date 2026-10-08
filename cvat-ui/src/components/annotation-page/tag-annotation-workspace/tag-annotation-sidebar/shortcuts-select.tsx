@@ -71,8 +71,14 @@ function ShortcutControls(props: Props & { storageKey: string | null }): JSX.Ele
             }
         }
 
-        registerComponentShortcuts(updatedComponentShortcuts);
-    }, [shortcutLabelMap, labels]);
+        const changed = Object.keys(updatedComponentShortcuts).some((key) => {
+            const current = keyMap[key];
+            const updated = updatedComponentShortcuts[key];
+            return current.name !== updated.name || current.description !== updated.description ||
+                current.nonActive !== updated.nonActive;
+        });
+        if (changed) registerComponentShortcuts(updatedComponentShortcuts);
+    }, [shortcutLabelMap, labels, keyMap]);
 
     Object.keys(shortcutLabelMap)
         .map((idx: string) => Number.parseInt(idx, 10))
