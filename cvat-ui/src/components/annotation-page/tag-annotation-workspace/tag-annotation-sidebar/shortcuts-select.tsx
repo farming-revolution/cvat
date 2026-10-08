@@ -3,7 +3,7 @@
 //
 // SPDX-License-Identifier: MIT
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Row, Col } from 'antd/lib/grid';
 import Text from 'antd/lib/typography/Text';
 import Select from 'antd/lib/select';
@@ -16,10 +16,7 @@ import { subKeyMap } from 'utils/component-subkeymap';
 import { useSelector } from 'react-redux';
 import { CombinedState } from 'reducers';
 import { useResetShortcutsOnUnmount } from 'utils/hooks';
-
-interface ShortcutLabelMap {
-    [index: number]: any;
-}
+import { readTagShortcuts, resolveTagShortcuts, writeTagShortcuts } from 'utils/tag-shortcuts';
 
 type Props = {
     onShortcutPress(labelID: number): void;
@@ -40,35 +37,15 @@ for (const idx of [1, 2, 3, 4, 5, 6, 7, 8, 9, 0]) {
 
 registerComponentShortcuts(componentShortcuts);
 
-const defaultShortcutLabelMap = {
-    1: '',
-    2: '',
-    3: '',
-    4: '',
-    5: '',
-    6: '',
-    7: '',
-    8: '',
-    9: '',
-    0: '',
-} as ShortcutLabelMap;
-
-function ShortcutsSelect(props: Props): JSX.Element {
-    const { labels, onShortcutPress } = props;
-    const [shortcutLabelMap, setShortcutLabelMap] = useState(defaultShortcutLabelMap);
+function ShortcutControls(props: Props & { storageKey: string | null }): JSX.Element {
+    const { labels, onShortcutPress, storageKey } = props;
+    const [preferences, setPreferences] = useState(() => readTagShortcuts(storageKey));
+    const shortcutLabelMap = useMemo(() => resolveTagShortcuts(labels, preferences), [labels, preferences]);
 
     const keyMap: KeyMap = useSelector((state: CombinedState) => state.shortcuts.keyMap);
     const handlers: {
         [key: string]: (keyEvent?: KeyboardEvent) => void;
     } = {};
-
-    useEffect(() => {
-        const newShortcutLabelMap = { ...shortcutLabelMap };
-        (labels as any[]).slice(0, 10).forEach((label, index) => {
-            newShortcutLabelMap[(index + 1) % 10] = label.id;
-        });
-        setShortcutLabelMap(newShortcutLabelMap);
-    }, []);
 
     useResetShortcutsOnUnmount(componentShortcuts);
 
@@ -82,7 +59,7 @@ function ShortcutsSelect(props: Props): JSX.Element {
         }, {});
 
         for (const [id, labelID] of Object.entries(shortcutLabelMap)) {
-            if (labelID) {
+            if (labelID && labels.some((label) => label.id === labelID)) {
                 const [label] = labels.filter((_label) => _label.id === labelID);
                 const key = `SETUP_${id}_TAG`;
                 updatedComponentShortcuts[key] = {
@@ -95,7 +72,7 @@ function ShortcutsSelect(props: Props): JSX.Element {
         }
 
         registerComponentShortcuts(updatedComponentShortcuts);
-    }, [shortcutLabelMap]);
+    }, [shortcutLabelMap, labels]);
 
     Object.keys(shortcutLabelMap)
         .map((idx: string) => Number.parseInt(idx, 10))
@@ -112,9 +89,15 @@ function ShortcutsSelect(props: Props): JSX.Element {
         });
 
     const onChangeShortcutLabel = (value: string, id: number): void => {
-        const newShortcutLabelMap = { ...shortcutLabelMap };
-        newShortcutLabelMap[id] = value ? Number.parseInt(value, 10) : '';
-        setShortcutLabelMap(newShortcutLabelMap);
+        const defaults = Object.fromEntries(Object.entries(shortcutLabelMap).map(([slot, labelID]) => [
+            slot, labels.find((label) => label.id === labelID)?.name ?? null,
+        ]));
+        const choices = {
+            ...(preferences ?? defaults),
+            [id]: labels.find((label) => label.id === Number(value))?.name ?? null,
+        };
+        setPreferences(choices);
+        writeTagShortcuts(storageKey, choices);
     };
 
     return (
@@ -157,6 +140,17 @@ function ShortcutsSelect(props: Props): JSX.Element {
                 ))}
         </div>
     );
+}
+
+function ShortcutsSelect(props: Props): JSX.Element {
+    const storageKey = useSelector((state: CombinedState) => {
+        const userID = state.auth.user?.id;
+        const job = state.annotation.job.instance;
+        if (!userID || !job) return null;
+        const scope = job.projectId ? `project:${job.projectId}` : `task:${job.taskId}`;
+        return `cvat-tag-shortcuts:user:${userID}:${scope}`;
+    });
+    return <ShortcutControls key={storageKey || 'unscoped'} {...props} storageKey={storageKey} />;
 }
 
 export default ShortcutsSelect;
