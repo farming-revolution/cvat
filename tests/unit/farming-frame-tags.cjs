@@ -37,9 +37,15 @@ test('Farming Revolution frame tag selectors exclude plant labels and Supervisio
     assert.deepEqual(supervisionFields.map((field) => field.defaultValue), ['inherit', 'inherit', 'inherit']);
 });
 
-test('CVAT projects without Farming Revolution supervision retain their generic tags', () => {
+test('absence-only tasks exclude plant labels without requiring Supervision', () => {
     assert.deepEqual(frameTagChoices([plant, absent]).map((label) => label.name),
-        ['Arnika', 'Absent: Giftpflanze']);
+        ['Absent: Giftpflanze']);
+});
+
+test('generic CVAT projects retain their normal tag choices', () => {
+    const generic = makeLabel('Needs review', 'tag');
+    assert.deepEqual(frameTagChoices([plant, generic]).map((label) => label.name),
+        ['Arnika', 'Needs review']);
 });
 
 test('dedicated controls require complete compatible supervision attributes', () => {

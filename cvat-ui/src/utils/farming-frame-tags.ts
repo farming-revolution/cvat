@@ -24,8 +24,12 @@ export function supervisionLabel(labels: Label[]): Label | undefined {
 
 export function frameTagChoices(labels: Label[]): Label[] {
     const applicable = filterApplicableForType(LabelType.TAG, labels);
-    // Outside Farming Revolution tasks, CVAT's usual "any" labels may still be used as tags.
-    if (!labels.some((label) => label.type === LabelType.TAG && label.name === spec.tag_label)) {
+    // Explicit absence tags identify Farming Revolution tagging tasks even
+    // when per-frame completeness controls have not been configured.
+    const hasFrameDeclarations = labels.some((label) => label.type === LabelType.TAG &&
+        (label.name === spec.tag_label || label.name.startsWith(spec.absence_prefix)));
+    // Generic CVAT tasks retain their usual "any" labels as tag choices.
+    if (!hasFrameDeclarations) {
         return applicable;
     }
     // The Supervision tag is edited through the dedicated per-frame controls.
