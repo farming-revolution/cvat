@@ -95,6 +95,11 @@ function mapDispatchToProps(dispatch: ThunkDispatch): DispatchToProps {
 }
 
 class ItemButtonsWrapper extends React.PureComponent<StateToProps & DispatchToProps & OwnProps> {
+    private exportTrack = async (): Promise<any> => {
+        const { objectState } = this.props;
+        return objectState.export();
+    };
+
     private navigateFirstKeyframe = (): void => {
         const { objectState, frameNumber } = this.props;
         const { first } = objectState.keyframes as NonNullable<typeof objectState.keyframes>;
@@ -279,6 +284,8 @@ class ItemButtonsWrapper extends React.PureComponent<StateToProps & DispatchToPr
                 setOutside={this.setOutside}
                 unsetOutside={this.unsetOutside}
                 simplifyTrack={this.simplifyTrack}
+                exportTrack={this.exportTrack}
+                heightDiagnosticSupported={objectState.shapeType === 'points' && objectState.points.length === 2}
                 simplifyDisabled={keyframeDisabled || objectState.isGroundTruth ||
                     first === last || shapeType !== 'points' || objectState.points.length !== 2}
                 setKeyframe={this.setKeyframe}

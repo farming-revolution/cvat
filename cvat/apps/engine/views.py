@@ -47,7 +47,7 @@ from rq.job import Job as RQJob
 import cvat.apps.dataset_manager as dm
 import cvat.apps.dataset_manager.views  # pylint: disable=unused-import
 from cvat.apps.dataset_manager.serializers import DatasetFormatsSerializer
-from cvat.apps.engine import backup
+from cvat.apps.engine import backup, height_diagnostic
 from cvat.apps.engine.background import BackupImporter, DatasetImporter, TaskCreator
 from cvat.apps.engine.cache import (
     CacheTooLargeDataError,
@@ -1448,6 +1448,23 @@ class TaskViewSet(viewsets.GenericViewSet, mixins.ListModelMixin,
 
         return response
 
+    @extend_schema(exclude=True)
+    @action(detail=True, methods=['GET', 'PUT'], url_path='height-diagnostic')
+    def height_diagnostic_metadata(self, request: ExtendedRequest, pk: int):
+        self.get_object()  # enforce task metadata permissions
+        try:
+            with transaction.atomic():
+                task = models.Task.objects.select_for_update().get(pk=pk)
+                if task.data_id is not None:
+                    task.data = models.Data.objects.select_for_update().get(pk=task.data_id)
+                catalog = height_diagnostic.catalogue(task)
+                if request.method == 'PUT':
+                    changed = height_diagnostic.write_bag(task.get_dirname(), catalog, request.data)
+                    return Response({'version': 1, 'changed': changed})
+                return Response(catalog)
+        except ValueError as error:
+            raise ValidationError(str(error)) from error
+
     @extend_schema(methods=['GET'], summary='Get metainformation for media files in a task',
         responses={
             '200': DataMetaReadSerializer,
@@ -1932,6 +1949,24 @@ class JobViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.CreateMo
         )
         return data_getter()
 
+
+    @extend_schema(exclude=True)
+    @action(detail=True, methods=['GET'], url_path='height-diagnostic')
+    def height_diagnostic_metadata(self, request: ExtendedRequest, pk: int):
+        job = self.get_object()  # enforce job data permissions, including assignees
+        try:
+            task = job.segment.task
+            catalog = height_diagnostic.catalogue(task)
+            result = height_diagnostic.read_document(task.get_dirname(), catalog)
+            step, start = catalog['frame_step'], catalog['start_frame']
+            indices = {(frame - start) // step for frame in job.segment.frame_set}
+            catalog['frames'] = [f for f in catalog['frames'] if f['frame'] in indices]
+            for bag in result.get('bags', []):
+                bag['frames'] = [f for f in bag['frames'] if f['frame'] in indices]
+            result['bags'] = [b for b in result.get('bags', []) if b['frames']]
+            return Response(dict(catalog, **result), headers={'Cache-Control': 'no-store'})
+        except (ValueError, OSError) as error:
+            return Response({'version': 1, 'status': 'unavailable', 'reason': str(error)})
 
     @extend_schema(methods=['GET'], summary='Get metainformation for media files in a job',
         responses={

@@ -728,6 +728,8 @@ class TaskPermission(
                 Scopes.EXPORT_DATASET if is_dataset_export(request) else Scopes.EXPORT_ANNOTATIONS
             ),
             ("metadata", "GET"): Scopes.VIEW_METADATA,
+            ("height_diagnostic_metadata", "GET"): Scopes.VIEW_METADATA,
+            ("height_diagnostic_metadata", "PUT"): Scopes.UPDATE_METADATA,
             ("metadata", "PATCH"): Scopes.UPDATE_METADATA,
             ("data", "GET"): Scopes.VIEW_DATA,
             ("data", "POST"): Scopes.UPLOAD_DATA,
@@ -1011,6 +1013,7 @@ class JobPermission(OpenPolicyAgentPermission, DownloadExportedExtension):
             ("append_annotations_chunk", "HEAD"): Scopes.UPDATE_ANNOTATIONS,
             ("data", "GET"): Scopes.VIEW_DATA,
             ("metadata", "GET"): Scopes.VIEW_METADATA,
+            ("height_diagnostic_metadata", "GET"): Scopes.VIEW_DATA,
             ("metadata", "PATCH"): Scopes.UPDATE_METADATA,
             ("initiate_dataset_export", "POST"): (
                 Scopes.EXPORT_DATASET if is_dataset_export(request) else Scopes.EXPORT_ANNOTATIONS

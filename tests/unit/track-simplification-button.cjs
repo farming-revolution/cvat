@@ -14,6 +14,7 @@ Module._load = function load(request, parent, isMain) {
     if (request === 'cvat-core-wrapper') return enums;
     if (request === 'components/common/cvat-tooltip') return ({ children }) => children;
     if (request === 'icons') return {};
+    if (request === './height-diagnostic') return () => null;
     return originalLoad.call(this, request, parent, isMain);
 };
 const { default: Buttons } = require('../../cvat-ui/src/components/annotation-page/standard-workspace/objects-side-bar/object-item-buttons.tsx');

@@ -25,6 +25,7 @@ import { ObjectType, ShapeType } from 'cvat-core-wrapper';
 import {
     ObjectOutsideIcon, FirstIcon, LastIcon, PreviousIcon, NextIcon,
 } from 'icons';
+import HeightDiagnosticButton from './height-diagnostic';
 
 interface Props {
     parentID: number | null;
@@ -57,6 +58,8 @@ interface Props {
     unsetOccluded(): void;
     setOutside(): void;
     unsetOutside(): void;
+    exportTrack(): Promise<any>;
+    heightDiagnosticSupported: boolean;
     simplifyTrack(): void;
     simplifyDisabled: boolean;
     setKeyframe(): void;
@@ -286,6 +289,7 @@ function SwitchKeyframe(props: Props): JSX.Element {
 function ItemButtonsComponent(props: Props): JSX.Element {
     const {
         objectType, shapeType, parentID, locked, simplifyDisabled, simplifyTrack,
+        exportTrack, heightDiagnosticSupported,
     } = props;
 
     if (objectType === ObjectType.TRACK) {
@@ -332,6 +336,11 @@ function ItemButtonsComponent(props: Props): JSX.Element {
                                         onClick={locked || simplifyDisabled ? undefined : simplifyTrack}
                                     />
                                 </CVATTooltip>
+                            </Col>
+                        )}
+                        {shapeType === ShapeType.POINTS && parentID === null && (
+                            <Col>
+                                <HeightDiagnosticButton snapshot={exportTrack} supported={heightDiagnosticSupported} />
                             </Col>
                         )}
                         {shapeType !== ShapeType.POINTS && (

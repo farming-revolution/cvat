@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT
 
 import './styles.scss';
-import React, { Dispatch, TransitionEvent } from 'react';
+import React, { Dispatch, TransitionEvent, useEffect } from 'react';
 import { AnyAction } from 'redux';
 import { connect } from 'react-redux';
 import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
@@ -12,6 +12,7 @@ import Tabs from 'antd/lib/tabs';
 import Layout from 'antd/lib/layout';
 
 import { CombinedState } from 'reducers';
+import { jobMetadata, refreshMetadata } from 'utils/height-diagnostic/metadata';
 import { DimensionType } from 'cvat-core-wrapper';
 import LabelsList from 'components/annotation-page/standard-workspace/objects-side-bar/labels-list';
 import { collapseSidebar as collapseSidebarAction } from 'actions/annotation-actions';
@@ -57,6 +58,13 @@ function ObjectsSideBar(props: StateToProps & DispatchToProps & OwnProps): JSX.E
     const {
         sidebarCollapsed, collapseSidebar, objectsList, jobInstance,
     } = props;
+
+    const jobID = jobInstance?.id;
+    useEffect(() => {
+        // Preload once even when the first frame has no point tracks. Mounting
+        // a track control on a later frame must not initiate network work.
+        if (jobID) refreshMetadata(jobMetadata(jobID));
+    }, [jobID]);
 
     const collapse = (): void => {
         const [collapser] = window.document.getElementsByClassName('cvat-objects-sidebar');
