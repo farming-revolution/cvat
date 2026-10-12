@@ -13,6 +13,7 @@ independent camera calibration. There is no Apply action.
 The dialog uses current, unsaved keyframes and recomputes whenever opened. An
 annotation update while it is open marks the result outdated; choose Recalculate.
 Outside, occluded, deleted-frame and out-of-image observations are excluded.
+Frame deletion/restoration uses the current cached job state, including unsaved changes.
 Interpolation does not create observations. Native normal and Ignore tracks are
 always estimated separately. Tracks crossing recordings are refused.
 
@@ -78,10 +79,10 @@ Deploy backend first, then UI; keep prior images, configuration and UI assets.
 Existing jobs and annotations require no migration. Older workers ignore the file;
 older servers disable the new UI control. An annotation rollback is never needed.
 
-Validated on 2026-10-12: 69 Node tests, eight isolated backend tests, UI TypeScript
+Validated on 2026-10-12: 70 Node tests, eight isolated backend tests, UI TypeScript
 and changed-file lint checks, and the production UI build passed. Browser tests
 used existing task reads with all network writes blocked and local diagnostic
-responses; they verified legacy/locked tracks, unsaved edits, undo, outdated
+responses; they verified legacy/locked tracks, unsaved edits and frame deletion/restoration, undo, outdated
 results and unchanged annotation exports. Four serial baseline/new/new/baseline
 runs on Arnika (3721) and weed enrichment (3699) found no repeatable frame-switch
 regression and no per-frame metadata requests. Pooled cached-pass medians were

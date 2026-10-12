@@ -8,6 +8,7 @@ import Alert from 'antd/lib/alert';
 import Button from 'antd/lib/button';
 import CVATTooltip from 'components/common/cvat-tooltip';
 import { CombinedState } from 'reducers';
+import { FramesMetaData, getCore } from 'cvat-core-wrapper';
 import { getCVATStore } from 'cvat-store';
 import { estimateHeight, Estimate, TrackSnapshot } from 'utils/height-diagnostic/estimate';
 import { jobMetadata, refreshMetadata } from 'utils/height-diagnostic/metadata';
@@ -73,9 +74,14 @@ function HeightDiagnosticButton({ snapshot, supported }: Props): JSX.Element {
     const calculate = async (): Promise<void> => {
         try {
             await refreshMetadata(entry, true);
+            // The core's job metadata is already cached and includes unsaved
+            // frame deletions/restores. Reading it does not fetch image data.
+            const frames = await getCore().frames.getMeta('job', jobID) as FramesMetaData;
             const { states } = getCVATStore().getState().annotation.annotations;
             const track = await snapshot();
-            const estimate = entry.value ? estimateHeight(track, entry.value) :
+            const estimate = entry.value ? estimateHeight(track, {
+                ...entry.value, deleted_frames: Object.keys(frames.deletedFrames).map(Number),
+            }) :
                 { reason: entry.reason, count: 0, warnings: [] };
             setResult({ estimate, states });
         } catch (_) {
