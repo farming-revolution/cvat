@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT
 
 import React from 'react';
+import { shallowEqual } from 'react-redux';
 import { Row, Col } from 'antd/lib/grid';
 import Text from 'antd/lib/typography/Text';
 import Collapse from 'antd/lib/collapse';
@@ -41,27 +42,22 @@ export interface SizeParams {
     length: number;
 }
 
-export function attrValuesAreEqual(next: Record<number, string>, prev: Record<number, string>): boolean {
-    const prevKeys = Object.keys(prev);
-    const nextKeys = Object.keys(next);
-
-    return (
-        nextKeys.length === prevKeys.length &&
-        nextKeys.map((key: string): boolean => prev[+key] === next[+key]).every((value: boolean) => value)
-    );
-}
-
 function attrAreTheSame(prevProps: Props, nextProps: Props): boolean {
-    return (
-        nextProps.readonly === prevProps.readonly &&
-        nextProps.collapsed === prevProps.collapsed &&
-        nextProps.attributes === prevProps.attributes &&
-        nextProps.source === prevProps.source &&
-        nextProps.score === prevProps.score &&
-        nextProps.votes === prevProps.votes &&
-        nextProps.textContent === prevProps.textContent &&
-        attrValuesAreEqual(nextProps.values, prevProps.values)
-    );
+    const {
+        attributes: prevAttributes, values: prevValues, sizeParams: prevSize, ...prevRest
+    } = prevProps;
+    const {
+        attributes: nextAttributes, values: nextValues, sizeParams: nextSize, ...nextRest
+    } = nextProps;
+
+    // Label.attributes returns a fresh array of immutable Attribute instances on
+    // every read. Compare its contents so unchanged frame details can stay mounted
+    // without rerendering. Include all other props, including event handlers and
+    // cuboid dimensions, so memoization never hides a relevant update.
+    return shallowEqual(prevRest, nextRest) &&
+        shallowEqual(prevAttributes, nextAttributes) &&
+        shallowEqual(prevValues, nextValues) &&
+        shallowEqual(prevSize, nextSize);
 }
 
 function ItemAttributesComponent(props: Props): JSX.Element | null {
