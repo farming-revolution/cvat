@@ -195,6 +195,11 @@ class ItemButtonsWrapper extends React.PureComponent<StateToProps & DispatchToPr
         this.commit();
     };
 
+    private simplifyTrack = (): void => {
+        const { objectState, simplifyTrack } = this.props;
+        simplifyTrack(objectState);
+    };
+
     private setKeyframe = (): void => {
         const { objectState } = this.props;
         objectState.keyframe = true;
@@ -227,7 +232,6 @@ class ItemButtonsWrapper extends React.PureComponent<StateToProps & DispatchToPr
             hiddenDisabled,
             keyframeDisabled,
             normalizedKeyMap,
-            simplifyTrack,
         } = this.props;
 
         const {
@@ -274,7 +278,7 @@ class ItemButtonsWrapper extends React.PureComponent<StateToProps & DispatchToPr
                 unsetOccluded={this.unsetOccluded}
                 setOutside={this.setOutside}
                 unsetOutside={this.unsetOutside}
-                simplifyTrack={() => simplifyTrack(objectState)}
+                simplifyTrack={this.simplifyTrack}
                 simplifyDisabled={keyframeDisabled || objectState.isGroundTruth ||
                     first === last || shapeType !== 'points' || objectState.points.length !== 2}
                 setKeyframe={this.setKeyframe}
