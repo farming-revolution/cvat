@@ -69,6 +69,29 @@ class EndpointsTest(unittest.TestCase):
             self.assertEqual(match.func.actions['get'],'height_diagnostic_metadata')
             self.assertEqual('put' in match.func.actions,resource=='tasks')
 
+    def test_job_without_covered_frames_stays_missing_until_its_bag_is_uploaded(self):
+        payload = copy.deepcopy(self.payload)
+        payload['bag']['frames'] = payload['bag']['frames'][:2]
+        views.height_diagnostic.write_bag(self.tmp.name, self.catalog, payload)
+        path = Path(self.tmp.name) / views.height_diagnostic.FILENAME
+        before = path.read_bytes()
+        job = views.JobViewSet()
+        job.get_object = Mock(return_value=NS(segment=NS(task=self.task, frame_set={14,16,18})))
+        with patch.object(views.height_diagnostic, 'catalogue', side_effect=lambda _: copy.deepcopy(self.catalog)):
+            result = job.height_diagnostic_metadata(NS(method='GET'), 2)
+            self.assertEqual(result.data['status'], 'missing')
+            self.assertEqual(result.data['bags'], [])
+            self.assertIn('synchronization', result.data['reason'])
+            self.assertEqual(result['Cache-Control'], 'no-store')
+            self.assertEqual(path.read_bytes(), before)
+            payload['bag'] = dict(self.bag, bag_id=2, frames=self.bag['frames'][2:])
+            views.height_diagnostic.write_bag(self.tmp.name, self.catalog, payload)
+            result = job.height_diagnostic_metadata(NS(method='GET'), 2)
+            self.assertEqual(result.data['status'], 'available')
+            self.assertEqual([f['frame'] for f in result.data['bags'][0]['frames']], [2,3,4])
+            self.assertNotIn('reason', result.data)
+        self.task.save.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -22,10 +22,22 @@ test('one shared request per job, focus/open revalidation, no fetch per frame, f
  const first=refreshMetadata(entry);const second=refreshMetadata(entry);assert.equal(requests,1);release();release=null;await Promise.all([first,second]);
  assert.equal(entry.value,null);assert.match(entry.reason,/synchronization/);assert.equal(notifications,1);
  for(let i=0;i<100;i++)await refreshMetadata(jobMetadata(1));assert.equal(requests,1);
- response={version:1,status:'available',bags:[],frames:[],deleted_frames:[],frame_fingerprint:'f'};
+ response=JSON.parse(JSON.stringify(require('./fixtures/height-projection.json')[0].metadata));
  await refreshMetadata(entry,true);assert.equal(requests,2);assert.equal(entry.value,response);assert.equal(notifications,2);
  await refreshMetadata(entry,true);assert.equal(notifications,2); // unchanged responses don't rerender every control
  entry.checked=Date.now()-31000;focus();await entry.request;assert.equal(requests,4);
  response=new Error('404 legacy server');await refreshMetadata(entry,true);assert.equal(entry.value,null);assert.ok(entry.reason);
  const next=jobMetadata(2);assert.notEqual(next,entry);assert.equal(next.value,null);
+});
+test('available task metadata without any matching job frame keeps the diagnostic disabled',async()=>{
+ const valid=require('./fixtures/height-projection.json')[0].metadata;
+ const entry=jobMetadata(3);
+ for(const change of [m=>m.bags=[],m=>m.frames=[],m=>m.bags[0].frames=[],
+  m=>m.bags[0].frames=m.bags[0].frames.map(f=>({...f,frame:f.frame+100}))]){
+  response=JSON.parse(JSON.stringify(valid));change(response);
+  await refreshMetadata(entry,true);assert.equal(entry.value,null);assert.match(entry.reason,/synchroniz/i);
+ }
+ response=JSON.parse(JSON.stringify(valid));await refreshMetadata(entry,true);assert.equal(entry.value,response);
+ response={version:1,status:'missing',reason:'Available after the next App–CVAT synchronization for this job.'};
+ await refreshMetadata(entry,true);assert.equal(entry.value,null);assert.equal(entry.reason,response.reason);
 });

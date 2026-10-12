@@ -88,3 +88,12 @@ runs on Arnika (3721) and weed enrichment (3699) found no repeatable frame-switc
 regression and no per-frame metadata requests. Pooled cached-pass medians were
 112→102 ms and 287→253 ms respectively (24 transitions per variant/task);
 these measurements establish no regression, not a claimed speed improvement.
+
+Review fixes: deleted keyframes no longer define the diagnostic's visible track
+span, matching CVAT interpolation when checking recording boundaries. A job with
+no matching projection frames stays disabled even if another job in the same task
+has metadata. These checks do not change annotations or stored metadata and run
+only when opening the diagnostic or refreshing its shared metadata.
+
+Regression validation: 73 Node tests, nine isolated backend tests, TypeScript,
+changed-file lint checks and the production UI build passed.

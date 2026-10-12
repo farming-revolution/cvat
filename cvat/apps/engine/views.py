@@ -1964,6 +1964,9 @@ class JobViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.CreateMo
             for bag in result.get('bags', []):
                 bag['frames'] = [f for f in bag['frames'] if f['frame'] in indices]
             result['bags'] = [b for b in result.get('bags', []) if b['frames']]
+            if result.get('status') == 'available' and not result['bags']:
+                result.update(status='missing',
+                    reason='Available after the next App–CVAT synchronization for this job.')
             return Response(dict(catalog, **result), headers={'Cache-Control': 'no-store'})
         except (ValueError, OSError) as error:
             return Response({'version': 1, 'status': 'unavailable', 'reason': str(error)})

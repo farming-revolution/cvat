@@ -41,8 +41,14 @@ export async function refreshMetadata(entry: MetadataEntry, force = false): Prom
             if (candidate?.version === 1 && candidate.status === 'available' &&
                 Array.isArray(candidate.bags) && Array.isArray(candidate.frames) &&
                 Array.isArray(candidate.deleted_frames) && typeof candidate.frame_fingerprint === 'string') {
-                value = candidate;
-                reason = '';
+                const frames = new Set(candidate.frames.map((frame) => frame.frame));
+                if (candidate.bags.some((bag) => Array.isArray(bag.frames) &&
+                    bag.frames.some((frame) => frames.has(frame.frame)))) {
+                    value = candidate;
+                    reason = '';
+                } else {
+                    reason = 'Available after the next App–CVAT synchronization for this job.';
+                }
             } else if (candidate?.version === 1 && typeof candidate.reason === 'string') {
                 reason = candidate.reason;
             }

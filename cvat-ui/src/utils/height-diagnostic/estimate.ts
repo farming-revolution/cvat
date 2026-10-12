@@ -77,7 +77,8 @@ export function estimateHeight(track: TrackSnapshot, metadata: HeightMetadata): 
                 mapped.set(frame.frame, { bag, frame });
             }
         }
-        const shapes = [...track.shapes].sort((a, b) => a.frame - b.frame);
+        // Match CVAT's boundedKeyframes: deleted keyframes do not define visibility.
+        const shapes = track.shapes.filter((shape) => !deleted.has(shape.frame)).sort((a, b) => a.frame - b.frame);
         if (!shapes.length || new Set(shapes.map((s) => s.frame)).size !== shapes.length) {
             return unavailable('This track has no usable keyframes or has duplicate frame indices.');
         }
@@ -93,7 +94,7 @@ export function estimateHeight(track: TrackSnapshot, metadata: HeightMetadata): 
             bags.add(info.bag.bag_id);
         }
         if (bags.size !== 1) return unavailable('This track crosses recordings or has no visible frames.');
-        const observations = shapes.filter((s) => !s.outside && !s.occluded && !deleted.has(s.frame));
+        const observations = shapes.filter((s) => !s.outside && !s.occluded);
         const data = observations.map((shape) => {
             const info = mapped.get(shape.frame);
             if (!info || shape.type !== 'points' || shape.points.length !== 2 ||

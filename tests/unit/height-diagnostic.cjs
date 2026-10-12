@@ -22,6 +22,25 @@ test('legacy, stale, invalid and incomplete metadata cannot produce an estimate'
 test('foreign bag spans are rejected even without an intermediate keyframe',()=>{
  const f=clone(fixtures[0]);f.metadata.bags.push({...f.metadata.bags[0],bag_id:2,frames:[f.metadata.bags[0].frames[4]]});f.metadata.bags[0].frames.splice(4,1);f.track.shapes=[f.track.shapes[0],f.track.shapes.at(-1)];assert.ok(estimateHeight(f.track,f.metadata).reason.includes('crosses'));
 });
+test('deleted outside keyframes cannot hide a cross-bag visible span; restoring them restores the boundary',()=>{
+ const f=clone(fixtures[0]);
+ f.metadata.bags.push({...f.metadata.bags[0],bag_id:2,frames:f.metadata.bags[0].frames.splice(4)});
+ f.track.shapes=[f.track.shapes[0],f.track.shapes[2],{...f.track.shapes[4],outside:true}];
+ assert.ok(Math.abs(estimateHeight(f.track,f.metadata).height-f.height)<1e-6);
+ f.metadata.deleted_frames=[4];const before=JSON.stringify(f);
+ const result=estimateHeight(f.track,f.metadata);
+ assert.equal(result.height,undefined);assert.match(result.reason,/crosses recordings/);
+ assert.equal(JSON.stringify(f),before);
+ f.metadata.deleted_frames=[];assert.ok(Math.abs(estimateHeight(f.track,f.metadata).height-f.height)<1e-6);
+});
+test('a deleted visible keyframe does not start a track in another bag',()=>{
+ const f=clone(fixtures[0]);
+ f.metadata.bags.push({...f.metadata.bags[0],bag_id:2,frames:f.metadata.bags[0].frames.splice(4)});
+ f.track.shapes=[f.track.shapes[0],f.track.shapes[4],f.track.shapes[8]];
+ f.metadata.deleted_frames=[0];
+ const result=estimateHeight(f.track,f.metadata);
+ assert.ok(Math.abs(result.height-f.height)<1e-6);assert.equal(result.count,2);assert.equal(result.first,4);
+});
 test('outside, occluded and deleted frames are excluded without inventing observations',()=>{
  const f=clone(fixtures[0]);f.track.shapes[2].outside=true;f.track.shapes[3].occluded=true;f.metadata.deleted_frames=[4];const r=estimateHeight(f.track,f.metadata);assert.equal(r.count,6);assert.ok(Math.abs(r.height-f.height)<1e-6);
  f.track.shapes.forEach(s=>{s.outside=true});assert.ok(estimateHeight(f.track,f.metadata).reason);
