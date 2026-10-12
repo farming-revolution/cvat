@@ -122,6 +122,10 @@ function buildDuplicatedAPI(prototype) {
                     return result;
                 },
 
+                async simplify(objectState) {
+                    return PluginRegistry.apiWrapper.call(this, prototype.annotations.simplify, objectState);
+                },
+
                 async split(objectState, frame) {
                     const result = await PluginRegistry.apiWrapper.call(
                         this,
@@ -366,6 +370,7 @@ export class Session {
         get: (frame: number, allTracks: boolean, filters: object[]) => Promise<ObjectState[]>;
         put: (objectStates: ObjectState[]) => Promise<number[]>;
         merge: (objectStates: ObjectState[]) => Promise<void>;
+        simplify: (objectState: ObjectState) => Promise<number>;
         split: (objectState: ObjectState, frame: number) => Promise<void>;
         group: (objectStates: ObjectState[], reset: boolean) => Promise<number>;
         join: (objectStates: ObjectState[], points: number[][]) => Promise<void>;
@@ -477,6 +482,7 @@ export class Session {
             put: Object.getPrototypeOf(this).annotations.put.bind(this),
             save: Object.getPrototypeOf(this).annotations.save.bind(this),
             merge: Object.getPrototypeOf(this).annotations.merge.bind(this),
+            simplify: Object.getPrototypeOf(this).annotations.simplify.bind(this),
             split: Object.getPrototypeOf(this).annotations.split.bind(this),
             group: Object.getPrototypeOf(this).annotations.group.bind(this),
             join: Object.getPrototypeOf(this).annotations.join.bind(this),

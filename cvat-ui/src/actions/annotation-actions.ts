@@ -1297,6 +1297,19 @@ export function createAnnotationsAsync(
     };
 }
 
+export function simplifyTrackAsync(objectState: ObjectState): ThunkAction {
+    return async (dispatch: ThunkDispatch): Promise<void> => {
+        try {
+            const { jobInstance } = receiveAnnotationsParameters();
+            if (objectState.lock || (objectState.isGroundTruth && jobInstance.type !== JobType.GROUND_TRUTH)) return;
+            await jobInstance.annotations.simplify(objectState);
+            dispatch(fetchAnnotationsAsync());
+        } catch (error) {
+            dispatch({ type: AnnotationActionTypes.UPDATE_ANNOTATIONS_FAILED, payload: { error } });
+        }
+    };
+}
+
 export function mergeAnnotationsAsync(statesToMerge: any[]): ThunkAction {
     return async (dispatch: ThunkDispatch): Promise<void> => {
         try {

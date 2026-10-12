@@ -876,6 +876,58 @@ export class Track extends Drawn {
         }, {});
     }
 
+    public simplify(frame: number): number {
+        if (this.lock || this.removed || this.parentID !== null || this.shapeType !== ShapeType.POINTS ||
+            this.readOnlyFields.includes('keyframe') || this.readOnlyFields.includes('points')) {
+            throw new ArgumentError('Only unlocked, editable point tracks can be simplified');
+        }
+        const frames = Object.keys(this.shapes).map(Number).sort((a, b) => a - b);
+        if (frames.some((key) => this.shapes[key].points?.length !== 2)) {
+            throw new ArgumentError('Simplification requires one point per track');
+        }
+        if (frames.length <= 2) return 0;
+        const keep = new Set([frames[0], frames[frames.length - 1]]);
+        // Attributes can be sparse in imported tracks: compare effective values.
+        let attributes = { ...this.get(frames[0]).attributes };
+        frames.forEach((key, index) => {
+            const shape = this.shapes[key];
+            const changedAttributes = Object.entries(shape.attributes).some(([id, value]) => (
+                attributes[id] !== value
+            ));
+            attributes = { ...attributes, ...shape.attributes };
+            // Outside states delimit visible sections. Keep every outside keyframe.
+            if (shape.outside) keep.add(key);
+            if (index > 0) {
+                const previous = this.shapes[frames[index - 1]];
+                if (shape.outside !== previous.outside || shape.occluded !== previous.occluded ||
+                    shape.zOrder !== previous.zOrder || changedAttributes) {
+                    keep.add(key);
+                    keep.add(frames[index - 1]);
+                }
+            }
+        });
+        const removed = frames.filter((key) => !keep.has(key));
+        if (!removed.length) return 0;
+        const before = { ...this.shapes };
+        const after = { ...this.shapes };
+        removed.forEach((key) => { delete after[key]; });
+        const undoSource = this.source;
+        const redoSource = this.readOnlyFields.includes('source') ? this.source : computeNewSource(this.source);
+        const restore = (shapes: Track['shapes'], source: Source): void => {
+            this.shapes = { ...shapes };
+            this.source = source;
+            this.updated = Date.now();
+        };
+        restore(after, redoSource);
+        this.history.do(
+            HistoryActions.SIMPLIFIED_TRACK,
+            () => restore(before, undoSource),
+            () => restore(after, redoSource),
+            [this.clientID], frame,
+        );
+        return removed.length;
+    }
+
     protected withContext(frame: number): ReturnType<Drawn['withContext']> & {
         save: (data: ObjectState) => ObjectState;
         export: () => SerializedTrack;

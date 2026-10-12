@@ -17,6 +17,7 @@ import Icon, {
     SelectOutlined,
     StarOutlined,
     EyeOutlined,
+    CompressOutlined,
 } from '@ant-design/icons';
 
 import CVATTooltip from 'components/common/cvat-tooltip';
@@ -56,6 +57,8 @@ interface Props {
     unsetOccluded(): void;
     setOutside(): void;
     unsetOutside(): void;
+    simplifyTrack(): void;
+    simplifyDisabled: boolean;
     setKeyframe(): void;
     unsetKeyframe(): void;
     lock(): void;
@@ -282,7 +285,7 @@ function SwitchKeyframe(props: Props): JSX.Element {
 
 function ItemButtonsComponent(props: Props): JSX.Element {
     const {
-        objectType, shapeType, parentID,
+        objectType, shapeType, parentID, locked, simplifyDisabled, simplifyTrack,
     } = props;
 
     if (objectType === ObjectType.TRACK) {
@@ -319,6 +322,18 @@ function ItemButtonsComponent(props: Props): JSX.Element {
                         <Col>
                             <SwitchKeyframe {...props} />
                         </Col>
+                        {shapeType === ShapeType.POINTS && parentID === null && (
+                            <Col>
+                                <CVATTooltip title='Simplify this track: keep visible endpoints and state changes. Undo available.'>
+                                    <CompressOutlined
+                                        className='cvat-object-item-button-simplify-track'
+                                        aria-label='Simplify track'
+                                        style={locked || simplifyDisabled ? disabledStyle : {}}
+                                        onClick={locked || simplifyDisabled ? undefined : simplifyTrack}
+                                    />
+                                </CVATTooltip>
+                            </Col>
+                        )}
                         {shapeType !== ShapeType.POINTS && (
                             <Col>
                                 <SwitchPinned {...props} />

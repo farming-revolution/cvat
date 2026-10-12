@@ -585,6 +585,14 @@ export default class Collection {
         return [prev, next];
     }
 
+    public simplify(objectState: ObjectState): number {
+        checkObjectType('object state', objectState, null, { cls: ObjectState, name: 'ObjectState' });
+        if (objectState.lock) throw new ArgumentError('Unlock the track before simplifying');
+        const object = this.objects[objectState.clientID];
+        if (!(object instanceof Track)) throw new ArgumentError('Select an existing point track');
+        return object.simplify(objectState.frame);
+    }
+
     public split(objectState: ObjectState, frame: number): void {
         checkObjectType('object state', objectState, null, { cls: ObjectState, name: 'ObjectState' });
         checkObjectType('frame', frame, 'integer', null);

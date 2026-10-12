@@ -11,6 +11,7 @@ import isAbleToChangeFrame from 'utils/is-able-to-change-frame';
 import { ThunkDispatch } from 'utils/redux';
 import {
     updateAnnotationsAsync,
+    simplifyTrackAsync,
     changeFrameAsync,
     changeHideActiveObjectAsync,
 } from 'actions/annotation-actions';
@@ -37,6 +38,7 @@ interface StateToProps {
 
 interface DispatchToProps {
     updateAnnotations(statesToUpdate: any[]): void;
+    simplifyTrack(state: ObjectState): void;
     changeFrame(frame: number): void;
     changeHideEditedState(value: boolean): void;
 }
@@ -77,6 +79,9 @@ function mapStateToProps(state: CombinedState, own: OwnProps): StateToProps {
 
 function mapDispatchToProps(dispatch: ThunkDispatch): DispatchToProps {
     return {
+        simplifyTrack(state: ObjectState) {
+            dispatch(simplifyTrackAsync(state));
+        },
         updateAnnotations(states: any[]) {
             dispatch(updateAnnotationsAsync(states));
         },
@@ -222,6 +227,7 @@ class ItemButtonsWrapper extends React.PureComponent<StateToProps & DispatchToPr
             hiddenDisabled,
             keyframeDisabled,
             normalizedKeyMap,
+            simplifyTrack,
         } = this.props;
 
         const {
@@ -268,6 +274,9 @@ class ItemButtonsWrapper extends React.PureComponent<StateToProps & DispatchToPr
                 unsetOccluded={this.unsetOccluded}
                 setOutside={this.setOutside}
                 unsetOutside={this.unsetOutside}
+                simplifyTrack={() => simplifyTrack(objectState)}
+                simplifyDisabled={keyframeDisabled || objectState.isGroundTruth ||
+                    first === last || shapeType !== 'points' || objectState.points.length !== 2}
                 setKeyframe={this.setKeyframe}
                 unsetKeyframe={this.unsetKeyframe}
                 lock={this.lock}

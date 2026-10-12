@@ -436,6 +436,15 @@ export function implementJob(Job: typeof JobClass): typeof JobClass {
         },
     });
 
+    Object.defineProperty(Job.prototype.annotations.simplify, 'implementation', {
+        value: function simplifyAnnotationsImplementation(
+            this: JobClass,
+            objectState: Parameters<typeof JobClass.prototype.annotations.simplify>[0],
+        ): ReturnType<typeof JobClass.prototype.annotations.simplify> {
+            return Promise.resolve(getCollection(this).simplify(objectState));
+        },
+    });
+
     Object.defineProperty(Job.prototype.annotations.split, 'implementation', {
         value: function splitAnnotationsImplementation(
             this: JobClass,
@@ -1196,6 +1205,15 @@ export function implementTask(Task: typeof TaskClass): typeof TaskClass {
             objectStates: Parameters<typeof TaskClass.prototype.annotations.merge>[0],
         ): ReturnType<typeof TaskClass.prototype.annotations.merge> {
             return Promise.resolve(getCollection(this).merge(objectStates));
+        },
+    });
+
+    Object.defineProperty(Task.prototype.annotations.simplify, 'implementation', {
+        value: function simplifyAnnotationsImplementation(
+            this: TaskClass,
+            objectState: Parameters<typeof TaskClass.prototype.annotations.simplify>[0],
+        ): ReturnType<typeof TaskClass.prototype.annotations.simplify> {
+            return Promise.resolve(getCollection(this).simplify(objectState));
         },
     });
 
