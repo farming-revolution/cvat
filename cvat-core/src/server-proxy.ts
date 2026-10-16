@@ -1685,14 +1685,31 @@ async function getAnnotations(
     id: number,
 ): Promise<SerializedCollection> {
     const { backendAPI } = config;
-
-    let response = null;
     try {
-        response = await Axios.get(`${backendAPI}/${session}s/${id}/annotations`);
+        if (session === 'job') {
+            // One consistent annotation/frame baseline. Older servers retain the
+            // normal read path, but cannot save repaired frame changes atomically.
+            try {
+                return (await Axios.get(`${backendAPI}/jobs/${id}/annotations-with-frames`)).data;
+            } catch (error) {
+                if (![404, 405].includes(error.response?.status)) throw error;
+            }
+        }
+        return (await Axios.get(`${backendAPI}/${session}s/${id}/annotations`)).data;
     } catch (errorData) {
         throw generateError(errorData);
     }
-    return response.data;
+}
+
+async function saveAnnotationsWithFrames(id: number, data: {
+    annotations: Omit<SerializedCollection, 'version'>; deleted_frames: number[]; baseline_revision: string;
+}): Promise<SerializedCollection> {
+    try {
+        const response = await Axios.post(`${config.backendAPI}/jobs/${id}/annotations-with-frames`, data);
+        return response.data;
+    } catch (error) {
+        throw generateError(error);
+    }
 }
 
 async function updateAnnotations(
@@ -1719,7 +1736,7 @@ async function updateAnnotations(
     } catch (errorData) {
         throw generateError(errorData);
     }
-    return response.data;
+    return { ...response.data, frame_save_revision: response.headers['x-cvat-frame-save-revision'] };
 }
 
 // Session is 'task' or 'job'
@@ -2565,6 +2582,7 @@ export default Object.freeze({
 
     annotations: Object.freeze({
         updateAnnotations,
+        saveAnnotationsWithFrames,
         getAnnotations,
         uploadAnnotations,
     }),

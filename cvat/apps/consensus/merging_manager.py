@@ -93,6 +93,9 @@ class _TaskMerger:
         return JobDataProvider(job_id).dm_dataset
 
     def _merge_consensus_jobs(self, parent_job_id: int):
+        # Serialize with combined frame/annotation saves before clearing any
+        # annotations, using the same task-before-job lock order.
+        Task.objects.select_for_update().get(pk=self._task.pk)
         self.check_merging_available(parent_job_id=parent_job_id)
 
         consensus_job_info = self._jobs[parent_job_id]

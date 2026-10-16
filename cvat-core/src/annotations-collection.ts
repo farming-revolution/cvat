@@ -212,6 +212,21 @@ export default class Collection {
         );
     }
 
+    public prepareFrameDeletion(deleted: Set<number>): {
+        apply: () => void; undo: () => void; clientIDs: number[];
+    } {
+        // Prepare every change before mutating any track: a locked/unsupported
+        // track must not leave earlier tracks partially repaired.
+        const changes = this.tracks.filter((track) => !track.removed).map((track) => ({
+            track, operation: track.prepareFrameDeletion(deleted),
+        })).filter(({ operation }) => operation !== null);
+        return {
+            apply: () => changes.forEach(({ operation }) => operation.apply()),
+            undo: () => changes.forEach(({ operation }) => operation.undo()),
+            clientIDs: changes.map(({ track }) => track.clientID),
+        };
+    }
+
     public export(): Pick<SerializedCollection, 'shapes' | 'tracks' | 'tags'> {
         const data = {
             tracks: this.tracks.filter((track) => !track.removed)

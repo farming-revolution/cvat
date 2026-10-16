@@ -998,6 +998,12 @@ class JobPermission(OpenPolicyAgentPermission, DownloadExportedExtension):
     @classmethod
     def _get_scopes(cls, request: ExtendedRequest, view: ViewSet, obj: Job | None):
         Scopes = cls.Scopes
+        if view.action == 'annotations_with_frames':
+            if request.method == 'GET':
+                return [Scopes.VIEW_ANNOTATIONS, Scopes.VIEW_METADATA]
+            if request.method == 'POST':
+                return [Scopes.UPDATE_ANNOTATIONS, Scopes.UPDATE_METADATA]
+
         scope = {
             ("list", "GET"): Scopes.LIST,
             ("create", "POST"): Scopes.CREATE,

@@ -44,25 +44,46 @@ import User from './user';
 import { JobValidationLayout, TaskValidationLayout } from './validation-layout';
 
 // must be called with task/job context
-async function deleteFrameWrapper(jobID, frame): Promise<void> {
+async function deleteFrameWrapper(jobID, frames: number | number[]): Promise<void> {
+    const requested = [...new Set(Array.isArray(frames) ? frames : [frames])].sort((a, b) => a - b);
+    if (!requested.length) return;
+    // Initialize annotations and their matching metadata baseline first.
+    await getAnnotations(this, requested[0], true, []);
+    const meta = await getFramesMeta('job', jobID);
+    if (this instanceof JobClass) {
+        const available = new Set(meta.getSegmentFrameNumbers(this.startFrame));
+        if (requested.some((frame) => !available.has(frame))) {
+            throw new ArgumentError('Selected frames do not belong to this job');
+        }
+    }
+    const deleted = new Set(Object.keys(meta.deletedFrames).map(Number));
+    const changed = requested.filter((frame) => !deleted.has(frame));
+    if (!changed.length) return;
+    changed.forEach((frame) => deleted.add(frame));
+    const operation = getCollection(this).prepareFrameDeletion(deleted);
+    if (this instanceof TaskClass && operation.clientIDs.length) {
+        throw new ArgumentError('These frames require track repair. Delete and save them through their job instance');
+    }
     const redo = async (): Promise<void> => {
-        deleteFrame(jobID, frame);
+        for (const frame of changed) await deleteFrame(jobID, frame);
+        operation.apply();
     };
-
     await redo();
     getHistory(this).do(HistoryActions.REMOVED_FRAME, async () => {
-        restoreFrame(jobID, frame);
-    }, redo, [], frame);
+        for (const frame of changed) await restoreFrame(jobID, frame);
+        operation.undo();
+    }, redo, operation.clientIDs, changed[0]);
 }
 
 async function restoreFrameWrapper(jobID, frame): Promise<void> {
+    await getAnnotations(this, frame, true, []);
     const redo = async (): Promise<void> => {
-        restoreFrame(jobID, frame);
+        await restoreFrame(jobID, frame);
     };
 
     await redo();
     getHistory(this).do(HistoryActions.RESTORED_FRAME, async () => {
-        deleteFrame(jobID, frame);
+        await deleteFrame(jobID, frame);
     }, redo, [], frame);
 }
 
@@ -217,15 +238,14 @@ export function implementJob(Job: typeof JobClass): typeof JobClass {
             this: JobClass,
             frame: Parameters<typeof JobClass.prototype.frames.delete>[0],
         ): ReturnType<typeof JobClass.prototype.frames.delete> {
-            if (!Number.isInteger(frame)) {
-                throw new Error(`Frame must be an integer. Got: "${frame}"`);
+            const frames = Array.isArray(frame) ? frame : [frame];
+            if (!frames.every(Number.isInteger)) {
+                throw new Error('Frame numbers must be integers');
             }
-
-            if (frame < this.startFrame || frame > this.stopFrame) {
+            if (frames.some((value) => value < this.startFrame || value > this.stopFrame)) {
                 throw new Error('The frame is out of the job');
             }
-
-            return deleteFrameWrapper.call(this, this.id, frame);
+            return deleteFrameWrapper.call(this, this.id, frames);
         },
     });
 
@@ -250,7 +270,17 @@ export function implementJob(Job: typeof JobClass): typeof JobClass {
         value: function saveFramesImplementation(
             this: JobClass,
         ): ReturnType<typeof JobClass.prototype.frames.save> {
-            return patchMeta(this.id).then((meta) => [meta]);
+            return (async () => {
+                const meta = await getFramesMeta('job', this.id);
+                if (meta.getUpdated().deletedFrames) {
+                    await getAnnotations(this, this.startFrame, true, []);
+                    const deleted = Object.keys(meta.deletedFrames).map(Number);
+                    await getSaver(this).saveWithFrames(deleted);
+                    meta.acknowledgeDeletedFrames(deleted);
+                    return [meta];
+                }
+                return [await patchMeta(this.id)];
+            })();
         },
     });
 
@@ -1006,18 +1036,12 @@ export function implementTask(Task: typeof TaskClass): typeof TaskClass {
             this: TaskClass,
             frame: Parameters<typeof TaskClass.prototype.frames.delete>[0],
         ): ReturnType<typeof TaskClass.prototype.frames.delete> {
-            if (!Number.isInteger(frame)) {
-                throw new Error(`Frame must be an integer. Got: "${frame}"`);
+            if (typeof frame !== 'number' || !Number.isInteger(frame)) {
+                throw new Error('Use a job instance to delete multiple frames together');
             }
-
-            if (frame < 0 || frame >= this.size) {
-                throw new Error('The frame is out of the task');
-            }
-
-            const job = this.jobs.filter((_job) => _job.startFrame <= frame && _job.stopFrame >= frame)[0];
-            if (job) {
-                await deleteFrameWrapper.call(this, job.id, frame);
-            }
+            if (frame < 0 || frame >= this.size) throw new Error('The frame is out of the task');
+            const job = this.jobs.find((_job) => _job.startFrame <= frame && _job.stopFrame >= frame);
+            if (job) await deleteFrameWrapper.call(this, job.id, frame);
         },
     });
 

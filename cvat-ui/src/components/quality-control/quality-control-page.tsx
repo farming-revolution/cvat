@@ -333,21 +333,21 @@ function QualityControlPage(): JSX.Element {
 
     const onDeleteFrames = useCallback((frameIDs: number[]): void => {
         if (state.gtJobInstance && instance) {
-            for (const frameID of frameIDs) {
-                state.gtJobInstance.frames.delete(frameID);
-            }
-
-            updateMeta();
+            state.gtJobInstance.frames.delete(frameIDs).then(updateMeta).catch((error: unknown) => {
+                notification.error({ message: 'Could not delete frames', description: String(error) });
+            });
         }
     }, [state.gtJobInstance]);
 
     const onRestoreFrames = useCallback((frameIDs: number[]): void => {
         if (state.gtJobInstance && instance) {
-            for (const frameID of frameIDs) {
-                state.gtJobInstance.frames.restore(frameID);
-            }
-
-            updateMeta();
+            (async () => {
+                // Await metadata changes before saving the combined snapshot.
+                for (const frameID of frameIDs) await state.gtJobInstance.frames.restore(frameID);
+                await updateMeta();
+            })().catch((error: unknown) => {
+                notification.error({ message: 'Could not restore frames', description: String(error) });
+            });
         }
     }, [state.gtJobInstance]);
 

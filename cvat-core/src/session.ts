@@ -437,7 +437,7 @@ export class Session {
 
     public frames: {
         get: (frame: number, isPlaying?: boolean, step?: number) => Promise<FrameData>;
-        delete: (frame: number) => Promise<void>;
+        delete: (frame: number | number[]) => Promise<void>;
         restore: (frame: number) => Promise<void>;
         save: () => Promise<FramesMetaData[]>;
         cachedChunks: () => Promise<number[]>;

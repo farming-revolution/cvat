@@ -499,6 +499,8 @@ class JobAnnotation:
                 )
             )
 
+        from cvat.apps.engine.frame_deletion import guard_annotation_keyframes
+        guard_annotation_keyframes(self.db_job, data)
         return data
 
     def _delete_job_labeledimages(self, ids__UNSAFE: list[int]) -> None:
@@ -1135,6 +1137,8 @@ def get_job_data(pk, *, streaming: bool = False):
 @silk_profile(name="POST job data")
 @transaction.atomic
 def put_job_data(pk, data: AnnotationIR | dict, *, db_job: models.Job | None = None):
+    from cvat.apps.engine.frame_deletion import lock_task_for_job
+    lock_task_for_job(pk)
     annotation = JobAnnotation(pk, db_job=db_job)
     annotation.put(data)
 
@@ -1147,6 +1151,8 @@ def put_job_data(pk, data: AnnotationIR | dict, *, db_job: models.Job | None = N
 def patch_job_data(
     pk, data: AnnotationIR | dict, action: PatchAction, *, db_job: models.Job | None = None
 ):
+    from cvat.apps.engine.frame_deletion import lock_task_for_job
+    lock_task_for_job(pk)
     annotation = JobAnnotation(pk, db_job=db_job)
     if action == PatchAction.CREATE:
         annotation.create(data)
@@ -1161,6 +1167,8 @@ def patch_job_data(
 @silk_profile(name="DELETE job data")
 @transaction.atomic
 def delete_job_data(pk, *, db_job: models.Job | None = None):
+    from cvat.apps.engine.frame_deletion import lock_task_for_job
+    lock_task_for_job(pk)
     annotation = JobAnnotation(pk, db_job=db_job)
     annotation.delete()
 
@@ -1186,6 +1194,7 @@ def export_job(
 @silk_profile(name="GET task data")
 @transaction.atomic
 def get_task_data(pk):
+    models.Task.objects.select_for_update().get(pk=pk)
     annotation = TaskAnnotation(pk)
     annotation.init_from_db()
 
@@ -1195,6 +1204,7 @@ def get_task_data(pk):
 @silk_profile(name="POST task data")
 @transaction.atomic
 def put_task_data(pk, data):
+    models.Task.objects.select_for_update().get(pk=pk)
     annotation = TaskAnnotation(pk)
     annotation.put(data)
 
@@ -1204,6 +1214,7 @@ def put_task_data(pk, data):
 @silk_profile(name="UPDATE task data")
 @transaction.atomic
 def patch_task_data(pk, data, action):
+    models.Task.objects.select_for_update().get(pk=pk)
     annotation = TaskAnnotation(pk)
     if action == PatchAction.CREATE:
         annotation.create(data)
@@ -1218,6 +1229,7 @@ def patch_task_data(pk, data, action):
 @silk_profile(name="DELETE task data")
 @transaction.atomic
 def delete_task_data(pk):
+    models.Task.objects.select_for_update().get(pk=pk)
     annotation = TaskAnnotation(pk)
     annotation.delete()
 
@@ -1242,6 +1254,7 @@ def export_task(
 
 @transaction.atomic
 def import_task_annotations(src_file, task_id, format_name, conv_mask_to_poly):
+    models.Task.objects.select_for_update().get(pk=task_id)
     av_scan_paths(src_file)
     task = TaskAnnotation(task_id, write_only=True)
 
@@ -1255,6 +1268,8 @@ def import_task_annotations(src_file, task_id, format_name, conv_mask_to_poly):
 
 @transaction.atomic
 def import_job_annotations(src_file, job_id, format_name, conv_mask_to_poly):
+    from cvat.apps.engine.frame_deletion import lock_task_for_job
+    lock_task_for_job(job_id)
     av_scan_paths(src_file)
     job = JobAnnotation(job_id, prefetch_images=True)
 

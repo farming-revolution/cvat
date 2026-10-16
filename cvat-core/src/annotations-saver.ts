@@ -67,6 +67,7 @@ export default class AnnotationsSaver {
     private sessionType: 'task' | 'job';
     private id: number;
     private version: number;
+    private frameRevision: string;
     private collection: any;
     private hash: string;
     private initialObjects: {
@@ -75,10 +76,11 @@ export default class AnnotationsSaver {
         tags: Record<number, SerializedCollection['tags'][0]>,
     };
 
-    constructor(version: number, collection, session: Task | Job) {
+    constructor(version: number, collection, session: Task | Job, frameRevision?: string) {
         this.sessionType = session instanceof Task ? 'task' : 'job';
         this.id = session.id;
         this.version = version;
+        this.frameRevision = frameRevision;
         this.collection = collection;
         this.hash = this._getHash();
         this.initialObjects = { shapes: {}, tracks: {}, tags: {} };
@@ -100,6 +102,12 @@ export default class AnnotationsSaver {
 
     async _request(data: SerializedCollection, action: 'put' | 'create' | 'update' | 'delete'): Promise<SerializedCollection> {
         const result = await serverProxy.annotations.updateAnnotations(this.sessionType, this.id, data, action);
+        // A normal annotation save advances only our annotation baseline. Keep
+        // the original shared-frame/overlap baseline so a concurrent deletion
+        // cannot be silently restored by our next combined save.
+        const sharedRevision = this.frameRevision?.split(':')[1];
+        const annotationRevision = result.frame_save_revision?.split(':')[0];
+        if (sharedRevision && annotationRevision) this.frameRevision = `${annotationRevision}:${sharedRevision}`;
         return result;
     }
 
@@ -219,6 +227,50 @@ export default class AnnotationsSaver {
                 this.initialObjects[type][object.id] = object;
             }
         }
+    }
+
+    async saveWithFrames(deletedFrames: number[]): Promise<void> {
+        if (this.sessionType !== 'job' || !this.frameRevision) {
+            throw new DataError('Frame repair requires the current CVAT server. Local edits were kept; reload before deleting frames.');
+        }
+        const exported = this.collection.export();
+        const before = JSON.stringify(exported);
+        const indexes = this._extractClientIDs(exported);
+        for (const kind of COLLECTION_KEYS) {
+            for (const object of exported[kind]) {
+                if (this.collection.flush || object.id === undefined) removeIDFromObject(object, 'id');
+            }
+        }
+        // A single transaction saves this entire snapshot, retaining existing
+        // IDs and assigning new IDs in the submitted order. Retrying a lost
+        // response reconciles that state rather than creating objects twice.
+        const saved = await serverProxy.annotations.saveAnnotationsWithFrames(this.id, {
+            annotations: exported, deleted_frames: deletedFrames, baseline_revision: this.frameRevision,
+        });
+        const editedDuringSave = before !== JSON.stringify(this.collection.export());
+        if (editedDuringSave) {
+            // Reconcile only identity; never overwrite edits made while awaiting HTTP.
+            for (const kind of COLLECTION_KEYS) {
+                indexes[kind].forEach((clientID, index) => {
+                    this.collection.objects[clientID].serverID = saved[kind][index].id;
+                });
+            }
+        } else {
+            this._updateCreatedObjects(saved, indexes);
+        }
+        // Deleted objects may be brought back by undo after saving. They must
+        // be created again, rather than refer to IDs no longer present in the DB.
+        const submitted = new Set(COLLECTION_KEYS.flatMap((kind) => indexes[kind]));
+        for (const [clientID, object] of Object.entries(this.collection.objects) as [string, { serverID: number }][]) {
+            if (!submitted.has(Number(clientID))) object.serverID = null;
+        }
+        this.initialObjects = { shapes: {}, tracks: {}, tags: {} };
+        this._updateInitialObjects(editedDuringSave ? saved : {
+            ...this.collection.export(), version: saved.version,
+        });
+        this.frameRevision = saved.frame_save_revision;
+        this.collection.flush = false;
+        this.hash = editedDuringSave ? '' : this._getHash();
     }
 
     async save(onUpdateArg?: (message: string) => void): Promise<void> {

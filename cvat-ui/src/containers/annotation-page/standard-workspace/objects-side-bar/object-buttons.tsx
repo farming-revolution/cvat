@@ -287,7 +287,7 @@ class ItemButtonsWrapper extends React.PureComponent<StateToProps & DispatchToPr
                 exportTrack={this.exportTrack}
                 heightDiagnosticSupported={objectState.shapeType === 'points' && objectState.points.length === 2}
                 simplifyDisabled={keyframeDisabled || objectState.isGroundTruth ||
-                    first === last || shapeType !== 'points' || objectState.points.length !== 2}
+                    shapeType !== 'points' || objectState.points.length !== 2}
                 setKeyframe={this.setKeyframe}
                 unsetKeyframe={this.unsetKeyframe}
                 lock={this.lock}

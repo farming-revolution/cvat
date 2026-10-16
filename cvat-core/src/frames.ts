@@ -287,6 +287,32 @@ export class FramesMetaData {
         );
     }
 
+    acceptDeletedFrames(saved: number[], pending = this.getUpdated().deletedFrames || {}): void {
+        const savedSet = new Set(saved);
+        Object.keys(this.deletedFrames).map(Number).forEach((frame) => {
+            if (!savedSet.has(frame)) delete this.deletedFrames[frame];
+        });
+        saved.forEach((frame) => { if (!this.deletedFrames[frame]) this.deletedFrames[frame] = true; });
+        Object.keys(this.#updateTrigger.getUpdated(this)).filter((key) => key.startsWith('deletedFrames:'))
+            .forEach((key) => this.#updateTrigger.resetField(key));
+        Object.entries(pending).forEach(([key, state]) => {
+            const frame = Number(key);
+            if (state === DeletedFrameState.DELETED && !this.deletedFrames[frame]) this.deletedFrames[frame] = true;
+            if (state === DeletedFrameState.RESTORED && this.deletedFrames[frame]) delete this.deletedFrames[frame];
+        });
+    }
+
+    acknowledgeDeletedFrames(saved: number[]): void {
+        const current = new Set(Object.keys(this.deletedFrames).map(Number));
+        const pending = {};
+        for (const frame of new Set([...saved, ...current])) {
+            if (current.has(frame) !== saved.includes(frame)) {
+                pending[frame] = current.has(frame) ? DeletedFrameState.DELETED : DeletedFrameState.RESTORED;
+            }
+        }
+        this.acceptDeletedFrames(saved, pending);
+    }
+
     getDataFrameNumber(jobRelativeFrame: number): number {
         return this.frameStep * jobRelativeFrame + this.startFrame;
     }

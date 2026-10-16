@@ -16,6 +16,7 @@ import {
     colors, Source, ShapeType, ObjectType, HistoryActions, DimensionType, JobType,
 } from './enums';
 import AnnotationHistory from './annotations-history';
+import { repairTrackBoundaries } from './track-frame-boundaries';
 import { SerializedShape, SerializedTrack, SerializedTag } from './server-response-types';
 import { mask2Rle, rle2Mask } from './rle-utils';
 import {
@@ -81,6 +82,7 @@ export interface BasicInjection {
     framesInfo: Readonly<{
         [index: number]: Readonly<FrameInfo>;
         isFrameDeleted: (frame: number) => boolean;
+        getFrameNumbers?: () => number[];
     }>;
     history: AnnotationHistory;
     groupColors: Record<number, string>;
@@ -876,21 +878,68 @@ export class Track extends Drawn {
         }, {});
     }
 
+    public prepareFrameDeletion(deleted: Set<number>, protectBoundaries = false): {
+        apply: () => void; undo: () => void; protectedFrames: number[];
+    } | null {
+        const frames = this.framesInfo.getFrameNumbers?.() ?? Object.keys(this.framesInfo)
+            .filter((key) => /^\d+$/.test(key)).map(Number)
+            .sort((a, b) => a - b);
+        // eslint-disable-next-line @typescript-eslint/no-use-before-define
+        if (this instanceof SkeletonTrack && this.elements.some((element) => (
+            Object.keys(element.shapes).some((key) => deleted.has(Number(key)))
+        ))) {
+            throw new ArgumentError(
+                `Track ${this.clientID} is a skeleton. Remove or relocate its affected keyframes first`,
+            );
+        }
+        const previous = new Set(frames.filter((key) => this.framesInfo.isFrameDeleted(key)));
+        const repair = repairTrackBoundaries(this.shapes, this.shapeType, frames, deleted, protectBoundaries, previous);
+        if (!repair.changed) return null;
+        if (this.lock || this.readOnlyFields.includes('keyframe') || this.readOnlyFields.includes('points')) {
+            throw new ArgumentError(`Unlock track ${this.clientID} before deleting a frame affecting it`);
+        }
+        const before = JSON.parse(JSON.stringify(this.shapes));
+        const after = JSON.parse(JSON.stringify(repair.shapes));
+        const beforeFrame = this.frame;
+        const beforeRemoved = this.removed;
+        const apply = (): void => {
+            this.shapes = JSON.parse(JSON.stringify(after));
+            this.frame = Object.keys(after).length ? Math.min(...Object.keys(after).map(Number)) : beforeFrame;
+            this.removed = repair.removed;
+            this.updated = Date.now();
+        };
+        const undo = (): void => {
+            this.shapes = JSON.parse(JSON.stringify(before));
+            this.frame = beforeFrame;
+            this.removed = beforeRemoved;
+            this.updated = Date.now();
+        };
+        return { apply, undo, protectedFrames: repair.protectedFrames };
+    }
+
     public simplify(frame: number): number {
         if (this.lock || this.removed || this.parentID !== null || this.shapeType !== ShapeType.POINTS ||
             this.readOnlyFields.includes('keyframe') || this.readOnlyFields.includes('points')) {
             throw new ArgumentError('Only unlocked, editable point tracks can be simplified');
         }
-        const frames = Object.keys(this.shapes).map(Number).sort((a, b) => a - b);
-        if (frames.some((key) => this.shapes[key].points?.length !== 2)) {
+        const before = JSON.parse(JSON.stringify(this.shapes));
+        const beforeFrame = this.frame;
+        const beforeRemoved = this.removed;
+        const available = this.framesInfo.getFrameNumbers?.() ?? Object.keys(this.framesInfo)
+            .filter((key) => /^\d+$/.test(key)).map(Number)
+            .sort((a, b) => a - b);
+        const deleted = new Set(available.filter((key) => this.framesInfo.isFrameDeleted(key)));
+        const repair = repairTrackBoundaries(this.shapes, this.shapeType, available, deleted, true);
+        const candidate = repair.shapes;
+        const frames = Object.keys(candidate).map(Number).sort((a, b) => a - b);
+        if (frames.some((key) => candidate[key].points?.length !== 2)) {
             throw new ArgumentError('Simplification requires one point per track');
         }
-        if (frames.length <= 2) return 0;
-        const keep = new Set([frames[0], frames[frames.length - 1]]);
+        const keep = new Set([frames[0], frames[frames.length - 1], ...repair.protectedFrames]);
         // Attributes can be sparse in imported tracks: compare effective values.
-        let attributes = { ...this.get(frames[0]).attributes };
+        let attributes = { ...this.attributes, ...candidate[frames[0]]?.attributes };
         frames.forEach((key, index) => {
-            const shape = this.shapes[key];
+            const shape = candidate[key];
             const changedAttributes = Object.entries(shape.attributes).some(([id, value]) => (
                 attributes[id] !== value
             ));
@@ -898,7 +947,7 @@ export class Track extends Drawn {
             // Outside states delimit visible sections. Keep every outside keyframe.
             if (shape.outside) keep.add(key);
             if (index > 0) {
-                const previous = this.shapes[frames[index - 1]];
+                const previous = candidate[frames[index - 1]];
                 if (shape.outside !== previous.outside || shape.occluded !== previous.occluded ||
                     shape.zOrder !== previous.zOrder || changedAttributes) {
                     keep.add(key);
@@ -907,25 +956,26 @@ export class Track extends Drawn {
             }
         });
         const removed = frames.filter((key) => !keep.has(key));
-        if (!removed.length) return 0;
-        const before = { ...this.shapes };
-        const after = { ...this.shapes };
+        if (!removed.length && !repair.changed) return 0;
+        const after = { ...candidate };
         removed.forEach((key) => { delete after[key]; });
         const undoSource = this.source;
         const redoSource = this.readOnlyFields.includes('source') ? this.source : computeNewSource(this.source);
-        const restore = (shapes: Track['shapes'], source: Source): void => {
-            this.shapes = { ...shapes };
+        const restore = (shapes: Track['shapes'], source: Source, start: number, removedTrack: boolean): void => {
+            this.shapes = JSON.parse(JSON.stringify(shapes));
+            this.frame = start;
+            this.removed = removedTrack;
             this.source = source;
             this.updated = Date.now();
         };
-        restore(after, redoSource);
+        restore(after, redoSource, frames[0] ?? beforeFrame, repair.removed);
         this.history.do(
             HistoryActions.SIMPLIFIED_TRACK,
-            () => restore(before, undoSource),
-            () => restore(after, redoSource),
+            () => restore(before, undoSource, beforeFrame, beforeRemoved),
+            () => restore(after, redoSource, frames[0] ?? beforeFrame, repair.removed),
             [this.clientID], frame,
         );
-        return removed.length;
+        return removed.length + (repair.changed ? 1 : 0);
     }
 
     protected withContext(frame: number): ReturnType<Drawn['withContext']> & {

@@ -3182,7 +3182,13 @@ class DataMetaWriteSerializer(serializers.ModelSerializer):
 
         return requested_deleted_frames
 
+    @transaction.atomic
     def update(self, instance: models.Data, validated_data):
+        if 'deleted_frames' in validated_data:
+            from cvat.apps.engine.frame_deletion import guard_legacy_deletion
+            task = models.Task.objects.select_for_update().get(data=instance)
+            instance.refresh_from_db()
+            guard_legacy_deletion(task, set(validated_data['deleted_frames']) - set(instance.deleted_frames))
         instance = super().update(instance, validated_data)
         db_task = models.Task.objects.filter(data=instance).first()
         if validated_data.get("cloud_storage_id"):
@@ -3203,6 +3209,22 @@ class JobDataMetaWriteSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def update(self, instance: models.Job, validated_data: dict[str, Any]) -> models.Job:
+        from cvat.apps.engine.frame_deletion import lock_task_for_job, guard_legacy_deletion
+        lock_task_for_job(instance.pk)
+        instance.segment.task.data.refresh_from_db()
+        if not self.context.get('atomic_frame_save'):
+            previous = set(instance.segment.task.data.deleted_frames)
+            if instance.type == models.JobType.GROUND_TRUTH:
+                previous.update(instance.segment.task.data.validation_layout.disabled_frames)
+            newly_deleted = set(validated_data['deleted_frames']) - previous
+            if (instance.type == models.JobType.GROUND_TRUTH and
+                instance.segment.task.data.validation_layout.mode == models.ValidationMode.GT_POOL):
+                provider = TaskFrameProvider(instance.segment.task)
+                absolute = [provider.get_abs_frame_number(frame) for frame in newly_deleted]
+                newly_deleted.update(provider.get_rel_frame_number(frame) for frame in
+                    models.Image.objects.filter(data=instance.segment.task.data,
+                        is_placeholder=True, real_frame__in=absolute).values_list('frame', flat=True))
+            guard_legacy_deletion(instance.segment.task, newly_deleted)
         db_segment = instance.segment
         db_task = db_segment.task
         db_data = db_task.require_data()
@@ -3247,7 +3269,16 @@ class JobDataMetaWriteSerializer(serializers.ModelSerializer):
                     )
                     if real_frame in updated_validation_abs_frame_set
                 ]
-                updated_deleted_task_frames = deleted_frames + excluded_placeholder_frames
+                controlled_frames = segment_rel_frame_set | {
+                    task_frame_provider.get_rel_frame_number(frame)
+                    for frame in models.Image.objects.filter(
+                        data=db_data, is_placeholder=True, real_frame__in=db_segment.frame_set
+                    ).values_list('frame', flat=True)
+                }
+                updated_deleted_task_frames = sorted(
+                    set(deleted_frames) | set(excluded_placeholder_frames) |
+                    (set(db_data.deleted_frames) - controlled_frames)
+                )
             elif db_data.validation_layout.mode == models.ValidationMode.GT:
                 # Regular GT jobs only refer to the task frames, without data ownership
                 pass

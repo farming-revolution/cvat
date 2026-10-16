@@ -1854,8 +1854,11 @@ class JobViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.CreateMo
         })
     @action(detail=True, methods=['GET', 'DELETE', 'PUT', 'PATCH', 'POST', 'OPTIONS'], url_path=r'annotations/?$',
         serializer_class=LabeledDataSerializer, parser_classes=_UPLOAD_PARSER_CLASSES)
+    @transaction.atomic
     def annotations(self, request: ExtendedRequest, pk: int):
         self._object: models.Job = self.get_object() # force call of check_object_permissions()
+        from cvat.apps.engine.frame_deletion import snapshot_revision, lock_task_for_job
+        lock_task_for_job(pk)
         if request.method == 'GET':
 
             if (
@@ -1882,7 +1885,9 @@ class JobViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.CreateMo
                     data = dm.task.put_job_data(pk, serializer.validated_data)
                 except (AttributeError, IntegrityError) as e:
                     return Response(data=str(e), status=status.HTTP_400_BAD_REQUEST)
-                return Response(data)
+                return Response(data, headers={'X-CVAT-Frame-Save-Revision': snapshot_revision(
+                    self._object, dm.task.get_job_data(pk),
+                )})
         elif request.method == 'DELETE':
             dm.task.delete_job_data(pk)
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -1899,7 +1904,9 @@ class JobViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.CreateMo
                     data = dm.task.patch_job_data(pk, serializer.validated_data, action)
                 except (AttributeError, IntegrityError) as e:
                     return Response(data=str(e), status=status.HTTP_400_BAD_REQUEST)
-                return Response(data)
+                return Response(data, headers={'X-CVAT-Frame-Save-Revision': snapshot_revision(
+                    self._object, dm.task.get_job_data(pk),
+                )})
 
 
     @tus_chunk_action(detail=True, suffix_base="annotations")
@@ -1949,6 +1956,20 @@ class JobViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.CreateMo
         )
         return data_getter()
 
+
+    @extend_schema(exclude=True)
+    @action(detail=True, methods=['GET', 'POST'], url_path='annotations-with-frames')
+    @transaction.atomic
+    def annotations_with_frames(self, request: ExtendedRequest, pk: int):
+        from cvat.apps.engine.frame_deletion import save_with_frames, checkpoint, lock_task_for_job
+        self.get_object()
+        if request.method == 'GET':
+            lock_task_for_job(pk)
+            return Response(checkpoint(pk, dm.task.get_job_data(pk)))
+        try:
+            return Response(save_with_frames(pk, request.data, lambda job: self.check_object_permissions(request, job)))
+        except IntegrityError as error:
+            raise serializers.ValidationError('Annotation identifiers conflict with existing objects') from error
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=['GET'], url_path='height-diagnostic')

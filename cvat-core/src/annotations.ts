@@ -89,6 +89,9 @@ async function getAnnotationsFromServer(session: Job | Task): Promise<void> {
 
         // Get meta information about frames
         const frameMeta = await getFramesMeta(sessionType, session.id);
+        if (serializedAnnotations.frame_save_deleted_frames) {
+            frameMeta.acceptDeletedFrames(serializedAnnotations.frame_save_deleted_frames);
+        }
         const frameNumbers = frameMeta.getSegmentFrameNumbers(session instanceof Job ? session.startFrame : 0);
 
         const history = cache.history.has(session) ? cache.history.get(session) : new AnnotationsHistory();
@@ -99,6 +102,7 @@ async function getAnnotationsFromServer(session: Job | Task): Promise<void> {
             dimension: session.dimension,
             replicasCount: session instanceof Job ? session.replicasCount : undefined,
             framesInfo: {
+                getFrameNumbers: () => frameNumbers,
                 isFrameDeleted: session instanceof Job ?
                     (frame: number) => !!getJobFramesMetaSync(session.id).deletedFrames[frame] :
                     (frame: number) => !!frameMeta.deletedFrames[frame],
@@ -116,7 +120,9 @@ async function getAnnotationsFromServer(session: Job | Task): Promise<void> {
 
         // eslint-disable-next-line no-unsanitized/method
         collection.import(serializedAnnotations);
-        const saver = new AnnotationsSaver(serializedAnnotations.version, collection, session);
+        const saver = new AnnotationsSaver(
+            serializedAnnotations.version, collection, session, serializedAnnotations.frame_save_revision,
+        );
         cache.collection.set(session, { collection, saver });
         cache.history.set(session, history);
     }
