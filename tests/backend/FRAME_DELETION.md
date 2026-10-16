@@ -141,3 +141,60 @@ ms for the baseline and 331–355 ms for the candidate (aggregate difference abo
 consistent regression across run order; no repair code or extra metadata requests
 ran during switching. These are headless-browser comparisons, not promises about
 labelers' hardware or network latency.
+
+## Verified normal-save baseline (P1 follow-up)
+
+A partial annotation save must not acknowledge other annotations that the browser
+has never loaded. The job PATCH/PUT request now sends
+`X-CVAT-Frame-Save-Baseline`. While holding the task lock, the server compares its
+annotation digest with that baseline **before** writing. Only a matching baseline
+receives both `X-CVAT-Frame-Save-Parent-Revision` (the verified request baseline)
+and `X-CVAT-Frame-Save-Revision` (the resulting state). The browser advances only
+when the parent matches its still-current baseline; it retains the original
+shared-state digest so concurrent frame/overlap/label changes remain detectable.
+The ordinary annotation response JSON and partial-write semantics are unchanged.
+This does not implement general multi-user merging of edits to the same object.
+
+The annotation digest carries a `v2.` protocol prefix. Tokens issued by the old
+implementation might already include unseen changes, so they cannot authorize a
+new destructive full save. Exact already-committed retries can still reconcile
+without writing. Save ordinary work and reload after deployment before editing
+frame deletion state. An old UI can continue ordinary annotation saves, but may
+need to reload for combined frame saves. A new UI does not trust an old server's
+unconditional revision header without the verified-parent acknowledgement.
+
+Missing/stale baselines and uncertain normal-save responses do not prevent normal
+partial saves; they do not advance the full-save baseline either. A later combined
+save may require reload/review rather than guessing that unseen changes are safe
+to replace. Local edits remain available on a failed combined save. A lost
+combined-save response retains the existing exact-state idempotent retry behavior.
+CORS allows the new request header and exposes the two acknowledgement headers
+only to already-configured allowed origins; it does not allow additional origins.
+
+Regression tests cover external updates/additions/deletions, successive own
+update/create/delete saves, full replacement, rollback, real PostgreSQL concurrent
+writers, uncertain responses, stale retries without duplicate annotations,
+pre-fix tokens, HTTP header transport, old UI/server behavior, allowed/rejected
+CORS origins, and mixed visibility/occlusion/attribute boundary repairs. Run
+`tests.backend.test_frame_save_baseline` alongside the suites above.
+
+P2 remains strict without compatibility code: the read-only production audit on
+2026-10-16 found zero deleted-frame keyframes in all 28 open tasks (3,030 tracks,
+28,172 keyframes; eight tasks with 61 deleted frames). No repair was necessary.
+
+Follow-up validation: 54 tests passed against disposable PostgreSQL, including
+existing dataset-manager and diagnostic suites; all 163 core tests passed.
+Core/UI TypeScript checks, changed-file ESLint (existing warnings only), Python
+compilation and the production UI build passed. The core geometry suite adds 160
+deterministic point/rectangle cases with deletion, visibility, occlusion, sparse
+attributes and exact undo checks. Historical 50-track/1,947-observation fixtures
+continue to agree with backend/export interpolation.
+
+Review passes covered the complete frame-boundary and Simplify implementation,
+annotation/frame transaction, permissions, shared-job repair, retry reconciliation,
+normal-save handshake, IDs, undo/redo, legacy APIs and rollout compatibility.
+The first follow-up identified pre-fix tokens already held by open tabs and the
+cross-origin header requirements; both are fixed and regression-tested. The final
+pass found no additional critical defect. Frame switching and its request paths
+are unchanged by this follow-up. No production annotation-writing smoke tests or
+repairs were performed.

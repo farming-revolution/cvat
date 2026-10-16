@@ -1717,6 +1717,7 @@ async function updateAnnotations(
     id: number,
     data: SerializedCollection,
     action: 'create' | 'update' | 'delete' | 'put',
+    frameBaseline?: string,
 ): Promise<SerializedCollection> {
     const { backendAPI } = config;
     const url = `${backendAPI}/${session}s/${id}/annotations`;
@@ -1732,11 +1733,20 @@ async function updateAnnotations(
 
     let response = null;
     try {
-        response = await Axios(url, { method, data, params });
+        const headers = session === 'job' && frameBaseline ? {
+            'X-CVAT-Frame-Save-Baseline': frameBaseline,
+        } : {};
+        response = await Axios(url, {
+            method, data, params, headers,
+        });
     } catch (errorData) {
         throw generateError(errorData);
     }
-    return { ...response.data, frame_save_revision: response.headers['x-cvat-frame-save-revision'] };
+    return {
+        ...response.data,
+        frame_save_revision: response.headers['x-cvat-frame-save-revision'],
+        frame_save_parent_revision: response.headers['x-cvat-frame-save-parent-revision'],
+    };
 }
 
 // Session is 'task' or 'job'

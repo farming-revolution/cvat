@@ -602,7 +602,12 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
     "upload-finish",
     "upload-multiple",
     "x-organization",
+    "x-cvat-frame-save-baseline",
 ]
+
+# The configured cross-origin UI must be able to verify normal-save acknowledgements.
+# This does not expand the set of allowed origins or grant annotation permissions.
+CORS_EXPOSE_HEADERS = ["X-CVAT-Frame-Save-Revision", "X-CVAT-Frame-Save-Parent-Revision"]
 
 TUS_MAX_FILE_SIZE = 2 * 26843545600  # 25gb * 2
 

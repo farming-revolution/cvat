@@ -94,11 +94,79 @@ test('metadata acknowledgement preserves deletions/restores made while saving', 
 
 test('normal saves keep the old shared-frame baseline when another job changes frames concurrently', async () => {
     const f = fixture(); f.saver.frameRevision = 'old-annotations:old-shared';
-    f.server.annotations.updateAnnotations = async () => ({tags:[],shapes:[],tracks:[],frame_save_revision:'new-annotations:new-shared'});
+    f.server.annotations.updateAnnotations = async () => ({tags:[],shapes:[],tracks:[],frame_save_revision:'new-annotations:new-shared',frame_save_parent_revision:'old-annotations:old-shared'});
     await f.saver._request({tags:[],shapes:[],tracks:[]}, 'update');
     f.setRequest(async (_id, body) => {
         assert.equal(body.baseline_revision, 'new-annotations:old-shared');
         return f.saved(body);
     });
     await f.saver.saveWithFrames([3]);
+});
+
+for (const mode of ['wrong-proof', 'stale-baseline', 'old-server']) {
+    test(`normal save cannot certify unseen annotations: ${mode}`, async () => {
+        const f = fixture(); f.saver.frameRevision = 'known:shared';
+        f.server.annotations.updateAnnotations = async (_type, _id, _data, _action, baseline) => {
+            assert.equal(baseline, 'known:shared');
+            return { tags: [], shapes: [], tracks: [],
+                ...(mode === 'stale-baseline' ? {} : { frame_save_revision: 'unseen:shared' }),
+                ...(mode === 'wrong-proof' ? { frame_save_parent_revision: 'other:shared' } : {}) };
+        };
+        await f.saver._request({ tags: [], shapes: [], tracks: [] }, 'update');
+        f.setRequest(async (_id, body) => {
+            assert.equal(body.baseline_revision, 'known:shared');
+            throw new Error('409 stale');
+        });
+        await assert.rejects(f.saver.saveWithFrames([3]), /409 stale/);
+    });
+}
+test('successive normal writes send the last verified baseline, retaining the original shared state', async () => {
+    const f = fixture(); f.saver.frameRevision = 'a:shared'; let step = 0;
+    f.server.annotations.updateAnnotations = async (_type, _id, _data, action, baseline) => {
+        const expected = ['a', 'b', 'c'][step]; const next = ['b', 'c', 'd'][step++];
+        assert.equal(baseline, `${expected}:shared`);
+        assert.equal(action, ['update', 'delete', 'create'][step - 1]);
+        return { tags: [], shapes: [], tracks: [], frame_save_revision: `${next}:new-shared`,
+            frame_save_parent_revision: baseline };
+    };
+    for (const action of ['update', 'delete', 'create']) await f.saver._request({}, action);
+    assert.equal(f.saver.frameRevision, 'd:shared');
+});
+test('a failed normal request retains the baseline for a conservative retry', async () => {
+    const f = fixture(); f.saver.frameRevision = 'known:shared';
+    f.server.annotations.updateAnnotations = async () => { throw new Error('response lost'); };
+    await assert.rejects(f.saver._request({}, 'update'), /response lost/);
+    assert.equal(f.saver.frameRevision, 'known:shared');
+});
+
+test('an out-of-order normal response cannot replace a newer baseline', async () => {
+    const f = fixture(); f.saver.frameRevision = 'known:shared';
+    f.server.annotations.updateAnnotations = async () => {
+        f.saver.frameRevision = 'newer:shared';
+        return { frame_save_revision: 'older:shared', frame_save_parent_revision: 'known:shared' };
+    };
+    await f.saver._request({}, 'update');
+    assert.equal(f.saver.frameRevision, 'newer:shared');
+});
+test('HTTP transport sends job baseline and reads proof headers without changing annotation JSON', async () => {
+    const proxy = fs.readFileSync('cvat-core/src/server-proxy.ts', 'utf8');
+    const source = proxy.slice(proxy.indexOf('async function updateAnnotations('), proxy.indexOf('// Session is', proxy.indexOf('async function updateAnnotations(')));
+    let last; const api = {};
+    vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText + '\napi.update = updateAnnotations;', {
+        api, config: { backendAPI: '/api' }, generateError: e => e,
+        Axios: async (url, options) => {
+            last = { url, options };
+            return { data: { tags: [], shapes: [], tracks: [] }, headers: {
+                'x-cvat-frame-save-revision': 'after:shared', 'x-cvat-frame-save-parent-revision': 'before:shared',
+            } };
+        },
+    });
+    const body = { tags: [], shapes: [], tracks: [] };
+    const response = await api.update('job', 42, body, 'update', 'before:shared');
+    assert.equal(last.url, '/api/jobs/42/annotations');
+    assert.equal(last.options.headers['X-CVAT-Frame-Save-Baseline'], 'before:shared');
+    assert.equal(last.options.data, body);
+    assert.equal(response.frame_save_parent_revision, 'before:shared');
+    await api.update('task', 7, body, 'update', 'before:shared');
+    assert.equal(last.options.headers['X-CVAT-Frame-Save-Baseline'], undefined);
 });

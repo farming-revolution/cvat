@@ -187,3 +187,33 @@ test('deleting unrelated frames does not add unnecessary keys beyond a track end
     track.prepareFrameDeletion(new Set([3,20,21])).apply();
     assert.deepEqual(Object.keys(track.shapes).map(Number),[0,2,4,11]);
 });
+
+test('deterministic mixed-state deletion replay preserves retained observations across 160 tracks', () => {
+    let seed = 192711;
+    const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+    for (let trial = 0; trial < 160; trial++) {
+        const type = trial % 2 ? 'points' : 'rectangle';
+        const keys = [0, 2, 5, 8, 11];
+        const shapes = keys.map(frame => ({ frame,
+            points: type === 'points' ? [random()*400, random()*400] : [random()*100,random()*100,200+random()*100,200+random()*100],
+            rotation: type === 'rectangle' ? Math.floor(random()*360) : 0,
+            outside: frame !== 0 && random() < 0.25, occluded: random() < 0.3,
+            z_order: Math.floor(random()*3),
+            attributes: random() < 0.6 ? [{spec_id:11,value:random()<0.5?'tiny':'small'}] : [],
+        }));
+        const { track, frames, excluded } = fixture({type,shapes});
+        const before = frames.map(f => state(track,f));
+        const deleted = new Set(frames.filter(() => random() < 0.35));
+        const retainedVisible = frames.filter(f => !deleted.has(f) && !before[f].outside);
+        const operation = track.prepareFrameDeletion(deleted);
+        operation?.apply(); deleted.forEach(f => excluded.add(f));
+        assert.equal(track.removed, retainedVisible.length === 0);
+        if (!track.removed) for (const f of frames.filter(f => !deleted.has(f))) {
+            const after = state(track,f);
+            assert.equal(after.outside, before[f].outside, `trial ${trial}, frame ${f}`);
+            if (!after.outside) sameState(after,before[f]);
+        }
+        operation?.undo(); excluded.clear();
+        for (const f of frames) sameState(state(track,f),before[f]);
+    }
+});

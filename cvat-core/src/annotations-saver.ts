@@ -101,13 +101,19 @@ export default class AnnotationsSaver {
     }
 
     async _request(data: SerializedCollection, action: 'put' | 'create' | 'update' | 'delete'): Promise<SerializedCollection> {
-        const result = await serverProxy.annotations.updateAnnotations(this.sessionType, this.id, data, action);
-        // A normal annotation save advances only our annotation baseline. Keep
-        // the original shared-frame/overlap baseline so a concurrent deletion
-        // cannot be silently restored by our next combined save.
-        const sharedRevision = this.frameRevision?.split(':')[1];
+        const baseline = this.frameRevision;
+        const result = await serverProxy.annotations.updateAnnotations(
+            this.sessionType, this.id, data, action, baseline,
+        );
+        // Advance only if the server verified our annotation baseline BEFORE
+        // this write under its task lock. A PATCH response does not load other
+        // editors' changes. Keep the old shared-frame/overlap baseline as well.
+        const sharedRevision = baseline?.split(':')[1];
         const annotationRevision = result.frame_save_revision?.split(':')[0];
-        if (sharedRevision && annotationRevision) this.frameRevision = `${annotationRevision}:${sharedRevision}`;
+        if (sharedRevision && annotationRevision && this.frameRevision === baseline &&
+            result.frame_save_parent_revision === baseline) {
+            this.frameRevision = `${annotationRevision}:${sharedRevision}`;
+        }
         return result;
     }
 

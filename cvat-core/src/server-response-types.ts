@@ -470,6 +470,7 @@ export interface SerializedTag {
 
 export interface SerializedCollection {
     frame_save_revision?: string;
+    frame_save_parent_revision?: string;
     frame_save_deleted_frames?: number[];
     tags: SerializedTag[];
     shapes: SerializedShape[];

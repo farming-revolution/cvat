@@ -137,30 +137,63 @@ def snapshot_revision(job, annotations):
         ),
     }
 
-    def digest(document):
-        def canonical(value, field=None):
-            if isinstance(value, dict):
-                return {key: canonical(item, key) for key, item in value.items()}
-            if isinstance(value, (list, tuple)):
-                items = [canonical(item) for item in value]
-                if field in ("attributes", "tracks", "shapes", "tags", "elements"):
-                    # DB readback uses sets for some attributes, and equal-frame
-                    # objects need not have a stable query order across workers.
-                    items.sort(
-                        key=lambda item: (
-                            item.get("frame", -1),
-                            item.get("spec_id", item.get("id", -1)),
-                            str(item.get("value", "")),
-                        )
+    return annotation_revision(annotations) + ":" + annotation_digest(value)
+
+
+def annotation_revision(annotations):
+    # Invalidate tokens issued before verified normal-save advancement. An open
+    # old tab may already have adopted a digest containing unseen remote edits.
+    return "v2." + annotation_digest(annotations)
+
+
+def annotation_digest(document):
+    def canonical(value, field=None):
+        if isinstance(value, dict):
+            return {key: canonical(item, key) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            items = [canonical(item) for item in value]
+            if field in ("attributes", "tracks", "shapes", "tags", "elements"):
+                # DB readback uses sets for some attributes, and equal-frame
+                # objects need not have a stable query order across workers.
+                items.sort(
+                    key=lambda item: (
+                        item.get("frame", -1),
+                        item.get("spec_id", item.get("id", -1)),
+                        str(item.get("value", "")),
                     )
-                return items
-            return value
+                )
+            return items
+        return value
 
-        return hashlib.sha256(
-            json.dumps(canonical(document), sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
+    return hashlib.sha256(
+        json.dumps(canonical(document), sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
-    return digest(annotations) + ":" + digest(value)
+
+@transaction.atomic
+def annotation_write_with_baseline(job, baseline, write):
+    """Keep ordinary PATCH semantics, but never certify unseen concurrent edits.
+
+    The response body remains the ordinary annotation API payload. An old client
+    or stale/missing baseline gets no advancement proof. An uncertain response
+    therefore fails closed on a later full frame save, retaining local edits.
+    """
+    from cvat.apps.dataset_manager import task as dm
+
+    lock_task_for_job(job.id)
+    verified = (
+        isinstance(baseline, str)
+        and len(baseline.split(":")) == 2
+        and annotation_revision(dm.get_job_data(job.id)) == baseline.split(":")[0]
+    )
+    result = write()
+    headers = {}
+    if verified:
+        headers = {
+            "X-CVAT-Frame-Save-Parent-Revision": baseline,
+            "X-CVAT-Frame-Save-Revision": snapshot_revision(job, dm.get_job_data(job.id)),
+        }
+    return result, headers
 
 
 def with_attribute_defaults(snapshot, job):

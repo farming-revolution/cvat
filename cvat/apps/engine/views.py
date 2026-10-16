@@ -1857,7 +1857,7 @@ class JobViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.CreateMo
     @transaction.atomic
     def annotations(self, request: ExtendedRequest, pk: int):
         self._object: models.Job = self.get_object() # force call of check_object_permissions()
-        from cvat.apps.engine.frame_deletion import snapshot_revision, lock_task_for_job
+        from cvat.apps.engine.frame_deletion import annotation_write_with_baseline, lock_task_for_job
         lock_task_for_job(pk)
         if request.method == 'GET':
 
@@ -1882,12 +1882,13 @@ class JobViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.CreateMo
             )
             if serializer.is_valid(raise_exception=True):
                 try:
-                    data = dm.task.put_job_data(pk, serializer.validated_data)
+                    data, headers = annotation_write_with_baseline(
+                        self._object, request.headers.get('X-CVAT-Frame-Save-Baseline'),
+                        lambda: dm.task.put_job_data(pk, serializer.validated_data),
+                    )
                 except (AttributeError, IntegrityError) as e:
                     return Response(data=str(e), status=status.HTTP_400_BAD_REQUEST)
-                return Response(data, headers={'X-CVAT-Frame-Save-Revision': snapshot_revision(
-                    self._object, dm.task.get_job_data(pk),
-                )})
+                return Response(data, headers=headers)
         elif request.method == 'DELETE':
             dm.task.delete_job_data(pk)
             return Response(status=status.HTTP_204_NO_CONTENT)
@@ -1901,12 +1902,13 @@ class JobViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.CreateMo
             )
             if serializer.is_valid(raise_exception=True):
                 try:
-                    data = dm.task.patch_job_data(pk, serializer.validated_data, action)
+                    data, headers = annotation_write_with_baseline(
+                        self._object, request.headers.get('X-CVAT-Frame-Save-Baseline'),
+                        lambda: dm.task.patch_job_data(pk, serializer.validated_data, action),
+                    )
                 except (AttributeError, IntegrityError) as e:
                     return Response(data=str(e), status=status.HTTP_400_BAD_REQUEST)
-                return Response(data, headers={'X-CVAT-Frame-Save-Revision': snapshot_revision(
-                    self._object, dm.task.get_job_data(pk),
-                )})
+                return Response(data, headers=headers)
 
 
     @tus_chunk_action(detail=True, suffix_base="annotations")
