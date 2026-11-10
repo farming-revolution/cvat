@@ -2678,8 +2678,16 @@ export class CanvasViewImpl implements CanvasView, Listener {
                     shape.attr('points', stringified);
 
                     if (state.shapeType === 'points' && !isInvisible) {
-                        this.selectize(false, shape);
-                        this.setupPoints(shape as SVG.PolyLine, state);
+                        // The selection plugin observes coordinate changes and moves existing handles.
+                        // Reuse a single-point handle (and its interaction listeners) while navigating.
+                        // Keep rebuilding for topology changes and multipoint shapes.
+                        const handler = shape.remember('_selectHandler');
+                        const reusePoint = state.points.length === 2 && drawnState.points.length === 2 &&
+                            handler?.pointSelection?.isSelected && handler?.nested;
+                        if (!reusePoint) {
+                            this.selectize(false, shape);
+                            this.setupPoints(shape as SVG.PolyLine, state);
+                        }
                     }
                 }
             }

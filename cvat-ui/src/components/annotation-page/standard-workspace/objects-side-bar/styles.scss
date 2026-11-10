@@ -533,3 +533,21 @@
     font-size: 10px;
     margin: 0;
 }
+
+// Static control rows do not need Ant Design's responsive grid subscriptions/styles.
+.cvat-object-item-button-layout {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+}
+
+.cvat-object-item-button-content {
+    width: 83.3333%;
+    text-align: center;
+}
+
+.cvat-object-item-button-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-around;
+}

@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT
 
 import React from 'react';
-import { Row, Col } from 'antd/lib/grid';
 import Icon, {
     UnlockOutlined,
     LockFilled,
@@ -294,40 +293,40 @@ function ItemButtonsComponent(props: Props): JSX.Element {
 
     if (objectType === ObjectType.TRACK) {
         return (
-            <Row align='middle' justify='space-around'>
-                <Col span={20} style={{ textAlign: 'center' }}>
-                    <Row justify='space-around'>
-                        <Col>
+            <div className='cvat-object-item-button-layout'>
+                <div className='cvat-object-item-button-content'>
+                    <div className='cvat-object-item-button-row'>
+                        <div>
                             <NavigateFirstKeyframe {...props} />
-                        </Col>
-                        <Col>
+                        </div>
+                        <div>
                             <NavigatePrevKeyframe {...props} />
-                        </Col>
-                        <Col>
+                        </div>
+                        <div>
                             <NavigateNextKeyframe {...props} />
-                        </Col>
-                        <Col>
+                        </div>
+                        <div>
                             <NavigateLastKeyframe {...props} />
-                        </Col>
-                    </Row>
-                    <Row justify='space-around'>
-                        <Col>
+                        </div>
+                    </div>
+                    <div className='cvat-object-item-button-row'>
+                        <div>
                             <SwitchOutside {...props} />
-                        </Col>
-                        <Col>
+                        </div>
+                        <div>
                             <SwitchLock {...props} />
-                        </Col>
-                        <Col>
+                        </div>
+                        <div>
                             <SwitchOccluded {...props} />
-                        </Col>
-                        <Col>
+                        </div>
+                        <div>
                             <SwitchHidden {...props} />
-                        </Col>
-                        <Col>
+                        </div>
+                        <div>
                             <SwitchKeyframe {...props} />
-                        </Col>
+                        </div>
                         {shapeType === ShapeType.POINTS && parentID === null && (
-                            <Col>
+                            <div>
                                 <CVATTooltip title='Simplify this track: keep visible endpoints and state changes. Undo available.'>
                                     <CompressOutlined
                                         className='cvat-object-item-button-simplify-track'
@@ -336,64 +335,64 @@ function ItemButtonsComponent(props: Props): JSX.Element {
                                         onClick={locked || simplifyDisabled ? undefined : simplifyTrack}
                                     />
                                 </CVATTooltip>
-                            </Col>
+                            </div>
                         )}
                         {shapeType === ShapeType.POINTS && parentID === null && (
-                            <Col>
+                            <div>
                                 <HeightDiagnosticButton snapshot={exportTrack} supported={heightDiagnosticSupported} />
-                            </Col>
+                            </div>
                         )}
                         {shapeType !== ShapeType.POINTS && (
-                            <Col>
+                            <div>
                                 <SwitchPinned {...props} />
-                            </Col>
+                            </div>
                         )}
-                    </Row>
-                </Col>
-            </Row>
+                    </div>
+                </div>
+            </div>
         );
     }
 
     if (objectType === ObjectType.SHAPE) {
         return (
-            <Row align='middle' justify='space-around'>
-                <Col span={20} style={{ textAlign: 'center' }}>
-                    <Row justify='space-around'>
+            <div className='cvat-object-item-button-layout'>
+                <div className='cvat-object-item-button-content'>
+                    <div className='cvat-object-item-button-row'>
                         { Number.isInteger(parentID) && (
-                            <Col>
+                            <div>
                                 <SwitchOutside {...props} />
-                            </Col>
+                            </div>
                         )}
-                        <Col>
+                        <div>
                             <SwitchLock {...props} />
-                        </Col>
-                        <Col>
+                        </div>
+                        <div>
                             <SwitchOccluded {...props} />
-                        </Col>
-                        <Col>
+                        </div>
+                        <div>
                             <SwitchHidden {...props} />
-                        </Col>
+                        </div>
                         {shapeType !== ShapeType.POINTS && (
-                            <Col>
+                            <div>
                                 <SwitchPinned {...props} />
-                            </Col>
+                            </div>
                         )}
-                    </Row>
-                </Col>
-            </Row>
+                    </div>
+                </div>
+            </div>
         );
     }
 
     return (
-        <Row align='middle' justify='space-around'>
-            <Col span={20} style={{ textAlign: 'center' }}>
-                <Row justify='space-around'>
-                    <Col>
+        <div className='cvat-object-item-button-layout'>
+            <div className='cvat-object-item-button-content'>
+                <div className='cvat-object-item-button-row'>
+                    <div>
                         <SwitchLock {...props} />
-                    </Col>
-                </Row>
-            </Col>
-        </Row>
+                    </div>
+                </div>
+            </div>
+        </div>
     );
 }
 
