@@ -22,7 +22,8 @@ from cvat.apps.dataset_manager.task import (
 
 class FrameSaveTests(TestCase):
     def setUp(self):
-        self.events = patch("cvat.apps.dataset_manager.task.handle_annotations_change").start()
+        # Exercise the real event handler; only suppress external event delivery.
+        self.events = patch("cvat.apps.events.handlers.record_server_event").start()
         self.addCleanup(patch.stopall)
         self.data = models.Data.objects.create(
             size=12, start_frame=0, stop_frame=11, image_quality=70
@@ -221,6 +222,54 @@ class FrameSaveTests(TestCase):
         )
         self.assertEqual(result["tracks"], [])
         self.assertEqual(result["frame_save_deleted_frames"], list(range(12)))
+
+    def test_explicit_deletion_emits_complete_events_and_preserves_other_tracks(self):
+        second = self.track()
+        shape = deepcopy(second["shapes"][0])
+        shape.update(label_id=self.label.id, source="manual", group=0)
+        patch_job_data(
+            self.job.id,
+            {
+                "tags": [{
+                    "frame": 0, "label_id": self.label.id, "source": "manual",
+                    "group": 0, "attributes": [],
+                }],
+                "shapes": [shape],
+                "tracks": [second],
+            },
+            PatchAction.CREATE,
+        )
+        self.baseline = checkpoint(self.job.id, get_job_data(self.job.id))
+        body = self.request(deleted=())
+        removed = body["annotations"]["tracks"].pop(0)
+        retained = deepcopy(body["annotations"]["tracks"])
+        body["annotations"]["shapes"] = []
+        body["annotations"]["tags"] = []
+        self.events.reset_mock()
+        result = save_with_frames(self.job.id, body, lambda j: None)
+        self.assertEqual(result["tracks"], retained)
+        self.assertEqual(result["shapes"], [])
+        self.assertEqual(result["tags"], [])
+        events = {c.kwargs["scope"]: c.kwargs for c in self.events.call_args_list}
+        deleted_track = events["delete:tracks"]["payload"]["tracks"][0]
+        self.assertEqual(deleted_track["shapes"], [{"id": s["id"]} for s in removed["shapes"]])
+        self.assertEqual(deleted_track["visible_shapes_count_diff"], -12)
+        self.assertEqual(events["delete:shapes"]["obj_name"], "points")
+        self.assertEqual(events["delete:tags"]["count"], 1)
+        self.events.reset_mock()
+        self.assertEqual(save_with_frames(self.job.id, body, lambda j: None), result)
+        self.events.assert_not_called()
+
+    def test_exclusion_removes_overlap_track_with_real_event_handler(self):
+        segment = models.Segment.objects.create(task=self.task, start_frame=0, stop_frame=11)
+        other = models.Job.objects.create(segment=segment)
+        put_job_data(other.id, {"tags": [], "shapes": [], "tracks": [self.track()]})
+        self.baseline = checkpoint(self.job.id, get_job_data(self.job.id))
+        result = save_with_frames(
+            self.job.id, self.request(deleted=tuple(range(12))), lambda j: None
+        )
+        self.assertEqual(result["tracks"], [])
+        self.assertEqual(get_job_data(other.id)["tracks"], [])
 
     def test_own_job_status_and_task_timestamp_do_not_stale_the_baseline(self):
         self.job.state = models.StateChoice.IN_PROGRESS

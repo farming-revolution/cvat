@@ -375,7 +375,9 @@ def save_with_frames(job_id, body, check_permission):
         for kind in KINDS:
             old = {v["id"]: v for v in original[kind]}
             retained = {v["id"] for v in proposed[kind] if v.get("id") is not None}
-            removals[kind] = [{"id": key} for key in old.keys() - retained]
+            # Internal deletion forwards these objects to annotation event handling,
+            # which needs shape types and track keyframes, not just native IDs.
+            removals[kind] = [value for key, value in old.items() if key not in retained]
             updates[kind] = [
                 v
                 for v in proposed[kind]
